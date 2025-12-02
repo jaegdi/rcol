@@ -1,0 +1,14 @@
+drwxr-xr-x dirk dirk 102 B  Mon Nov 24 11:06:09 2025 󱧼 ]8;;file:///home/dirk/devel/rust/kpasscli/src\src]8;;\
+drwxr-xr-x dirk dirk  80 B  Mon Nov 24 11:48:36 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/target\target]8;;\
+.rwxr-xr-x dirk dirk 1.5 KB Mon Nov 24 14:37:40 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/build.sh\build.sh]8;;\
+.rw-r--r-- dirk dirk  44 KB Mon Nov 24 12:00:40 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/Cargo.lock\Cargo.lock]8;;\
+.rw-r--r-- dirk dirk 428 B  Mon Nov 24 12:00:25 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/Cargo.toml\Cargo.toml]8;;\
+.rw-r--r-- dirk dirk 395 B  Mon Nov 24 11:00:12 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/config-lin.yaml\config-lin.yaml]8;;\
+.rw-r--r-- dirk dirk 411 B  Mon Nov 24 11:00:12 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/config-mac.yaml\config-mac.yaml]8;;\
+.rw-r--r-- dirk dirk 404 B  Mon Nov 24 11:00:12 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/config-win.yaml\config-win.yaml]8;;\
+.rw-r--r-- dirk dirk 184 B  Mon Nov 24 11:00:12 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/configy.yaml\configy.yaml]8;;\
+.rw-r--r-- dirk dirk  34 KB Mon Nov 24 11:00:12 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/LICENSE\LICENSE]8;;\
+.rw-r--r-- dirk dirk 6.9 KB Mon Nov 24 14:51:56 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/README.md\README.md]8;;\
+.rw-r--r-- dirk dirk  79 B  Mon Nov 24 12:19:02 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/test_config.yaml\test_config.yaml]8;;\
+.rw-r--r-- dirk dirk 2.6 KB Mon Nov 24 11:00:12 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/testpass.kdbx\testpass.kdbx]8;;\
+.rw-r--r-- dirk dirk  10 B  Mon Nov 24 11:00:12 2025  ]8;;file:///home/dirk/devel/rust/kpasscli/testpasswd\testpasswd]8;;\
