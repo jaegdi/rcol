@@ -42,7 +42,7 @@ It supports:
 
 ### Formatting
 *   `-w=N`
-    Set padding width (number of spaces) between columns (default `1`).
+    **Padding Width**. Set padding width (number of spaces) between columns (default `1`).
 
 *   `-pp`
     **Pretty Print**. Draw a border around the table using Unicode box-drawing characters.
@@ -57,7 +57,7 @@ It supports:
     **Column Separator**. Draw a vertical line between columns.
 
 *   `-colsep='STR'`
-    Define the string used for column separation in non-pretty-print mode (default `|`).
+    **Column Seperator**Define the string used for column separation in non-pretty-print mode (default `|`).
 
 *   `-num`
     **Numbering**. Add a row with column numbers at the top.
@@ -71,39 +71,39 @@ It supports:
 
 ### Processing
 *   `-filter='REGEX'`
-    Process only lines matching the given *REGEX*.
+    **Filter**. Process only lines matching the given *REGEX*.
 
 *   `-sortcol=N`
-    Sort output by column *N* (1-based index).
+    **Sort**. Sort output by column *N* (1-based index).
 
 *   `-gcol=N`
-    Group by column *N*. Replaces repeated values in this column with empty strings.
+    **Grouping Column**. Group by column *N*. Replaces repeated values in this column with empty strings.
 
 *   `-gcolval`
-    When using `-gcol`, keep the repeated values instead of replacing them with empty strings.
+    **Grouping Column Value**. When using `-gcol`, keep the repeated values instead of replacing them with empty strings.
 
 ### Output Formats
 *   `-csv`
-    Output as Comma Separated Values.
+    **CSV**. Output as Comma Separated Values.
 
 *   `-json`
-    Output as JSON.
+    **JSON**. Output as JSON.
 
 *   `-jtc`
     **JSON Title Column**. Use the first column as the key for JSON objects (requires headers).
 
 *   `-html`
-    Output as an HTML table.
+    **HTML**. Output as an HTML table.
 
 ### General
 *   `-help`, `-h`
-    Print help message.
+    **Help**. Print help message.
 
 *   `-man`
-    Print manual.
+    **Manual**. Print manual.
 
 *   `-v`, `-verify`
-    Print parameter verification info.
+    **Verify**. Print parameter verification info.
 
 ## COLUMNS
 Specify which columns to output using 1-based indices.
@@ -145,7 +145,7 @@ ls -l | rcol -mb -json
 cat log.txt | rcol -filter="ERROR" -pp
 ```
 
-**7. Complex formatting with Unicode icons (strips ANSI codes for alignment):**
+**7. Sopports complex formatting with Unicode icons (strips containing ANSI codes for alignment):**
 ```bash
 rcol -pp -mb -gcol=1 -sortcol=1 -nhl -header="RIGHTS USER GROUP SIZE UNIT DAY MONTH CAL TIME YEAR S NAME" -file=test_data_03.txt
 ```
