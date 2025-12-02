@@ -151,4 +151,4 @@ rcol -pp -mb -gcol=1 -sortcol=1 -nhl -header="RIGHTS USER GROUP SIZE UNIT DAY MO
 ```
 
 ## AUTHOR
-Written by Antigravity.
+Written by Dirk Jäger.
