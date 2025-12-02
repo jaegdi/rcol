@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["main","print_help","print_man"],"mod":["args","formatter","input","processor"]};

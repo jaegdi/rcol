@@ -2,6 +2,11 @@ use crate::args::AppArgs;
 use regex::Regex;
 use std::cmp::Ordering;
 
+/// Represents processed tabular data with headers and rows.
+///
+/// Contains the table structure after processing, including selected and reordered columns.
+/// The `original_column_indices` field tracks which original columns were selected,
+/// which is useful for column numbering display.
 #[derive(Debug)]
 pub struct TableData {
     pub headers: Vec<String>,
@@ -9,6 +14,33 @@ pub struct TableData {
     pub original_column_indices: Vec<usize>,
 }
 
+/// Processes input lines according to application arguments to produce table data.
+///
+/// Executes the complete data processing pipeline:
+/// 1. Filters lines based on regex pattern (if specified)
+/// 2. Splits lines into columns using the specified separator
+/// 3. Handles header extraction or application
+/// 4. Selects and reorders columns based on column specifications
+/// 5. Sorts rows by specified column (if requested)
+/// 6. Groups rows by specified column with optional value hiding (if requested)
+///
+/// # Arguments
+///
+/// * `lines` - Raw input lines to process
+/// * `args` - Application arguments specifying how to process the data
+///
+/// # Returns
+///
+/// - `Ok(TableData)` containing the processed table structure
+/// - `Err(String)` if processing fails (invalid regex, column specs, etc.)
+///
+/// # Processing Details
+///
+/// - **Filtering**: Lines not matching the filter regex are excluded
+/// - **Headers**: Determined by `-header`, `-nhl`, or first line default
+/// - **Column Selection**: Supports ranges (1:3) and individual columns (1 2 5)
+/// - **Sorting**: Numeric sort if values are numbers, otherwise lexicographic
+/// - **Grouping**: Inserts separator rows between groups, hides repeated values unless `-gcolval`
 pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, String> {
     let mut rows: Vec<Vec<String>> = Vec::new();
     let mut headers: Vec<String> = Vec::new();
@@ -31,7 +63,11 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
     }
 
     if filtered_lines.is_empty() {
-        return Ok(TableData { headers, rows, original_column_indices: Vec::new() });
+        return Ok(TableData {
+            headers,
+            rows,
+            original_column_indices: Vec::new(),
+        });
     }
 
     // 2. Split lines into columns
@@ -59,7 +95,7 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
     // But -nhl says "The data contains no headline". This implies the DEFAULT is that data MIGHT have a headline?
     // Let's look at -rh "RemoveHeader removes the first line."
     // If -rh is used, we drop the first line.
-    
+
     // Let's assume:
     // If -header is set, we use it.
     // If -rh is set, we skip the first line of input.
@@ -71,10 +107,8 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
     // -nhl = No header in input (all lines are data).
     // -header = Use this string as header.
     // -rh = Remove first line (maybe it was a bad header?).
-    
-    let line_iter = filtered_lines.into_iter();
-    
 
+    let line_iter = filtered_lines.into_iter();
 
     // Handle input lines
     let mut first_line = true;
@@ -91,7 +125,7 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
                 continue;
             }
         }
-        
+
         let parts: Vec<String> = sep_regex.split(&line).map(|s| s.to_string()).collect();
         rows.push(parts);
     }
@@ -105,8 +139,12 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
                 // Range
                 let parts: Vec<&str> = col_spec.split(':').collect();
                 if parts.len() == 2 {
-                    let start: usize = parts[0].parse().map_err(|_| format!("Invalid range start: {}", parts[0]))?;
-                    let end: usize = parts[1].parse().map_err(|_| format!("Invalid range end: {}", parts[1]))?;
+                    let start: usize = parts[0]
+                        .parse()
+                        .map_err(|_| format!("Invalid range start: {}", parts[0]))?;
+                    let end: usize = parts[1]
+                        .parse()
+                        .map_err(|_| format!("Invalid range end: {}", parts[1]))?;
                     // 1-based to 0-based
                     if start == 0 || end == 0 {
                         return Err("Column numbers must be 1-based".to_string());
@@ -122,7 +160,9 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
                         let mut i = start;
                         while i >= end {
                             col_indices.push(i - 1);
-                            if i == 0 { break; } // Should not happen due to check above
+                            if i == 0 {
+                                break;
+                            } // Should not happen due to check above
                             i -= 1;
                         }
                     }
@@ -131,7 +171,9 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
                 }
             } else {
                 // Single number
-                let idx: usize = col_spec.parse().map_err(|_| format!("Invalid column number: {}", col_spec))?;
+                let idx: usize = col_spec
+                    .parse()
+                    .map_err(|_| format!("Invalid column number: {}", col_spec))?;
                 if idx == 0 {
                     return Err("Column numbers must be 1-based".to_string());
                 }
@@ -230,7 +272,7 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
             // It seems to imply TWO things:
             // 1. Separator between groups.
             // 2. Hiding repeated values.
-            
+
             // Let's implement hiding repeated values first.
             // And for separator, maybe insert a special row? Or handle in formatter?
             // If I insert a row here, it complicates the TableData structure (which expects uniform columns).
@@ -239,13 +281,13 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
             // But `process_input` returns `TableData`.
             // Let's modify `TableData` to support separator rows?
             // Or just insert an empty row?
-            
+
             // "write a separator... to group the values"
             // Let's insert an empty row (all empty strings) between groups.
-            
+
             let mut grouped_rows = Vec::new();
             let mut first = true;
-            
+
             for mut row in rows {
                 let val = row[idx].clone();
                 if !first && val != last_val {
@@ -255,12 +297,12 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
                     let empty_row = vec!["".to_string(); row.len()];
                     grouped_rows.push(empty_row);
                 }
-                
+
                 if !first && val == last_val && !args.gcolval {
                     // Hide value
                     row[idx] = "".to_string();
                 }
-                
+
                 last_val = val;
                 grouped_rows.push(row);
                 first = false;
@@ -269,5 +311,9 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
         }
     }
 
-    Ok(TableData { headers, rows, original_column_indices: col_indices })
+    Ok(TableData {
+        headers,
+        rows,
+        original_column_indices: col_indices,
+    })
 }

@@ -1,14 +1,19 @@
 mod args;
+mod formatter;
 mod input;
 mod processor;
-mod formatter;
 
 use args::parse_args;
+use formatter::format_output;
 use input::read_input;
 use processor::process_input;
-use formatter::format_output;
 use std::process;
 
+/// Main entry point for the rcol application.
+///
+/// Parses command-line arguments, reads input from file or stdin, processes the data
+/// according to the specified options, and formats the output in the requested format.
+/// Exits with status code 1 on any error.
 fn main() {
     match parse_args() {
         Ok(args) => {
@@ -24,7 +29,7 @@ fn main() {
                 println!("Args: {:?}", args);
                 return;
             }
-            
+
             // Read input
             let lines = match read_input(&args) {
                 Ok(l) => l,
@@ -56,6 +61,9 @@ fn main() {
     }
 }
 
+/// Prints the help message showing all available command-line options.
+///
+/// Displays usage information including all flags, their parameters, and descriptions.
 fn print_help() {
     println!("Usage: rcol [options] [columns]");
     println!("Options:");
@@ -87,6 +95,10 @@ fn print_help() {
     println!("  -v, -verify         Verify parameters");
 }
 
+/// Prints the manual page with extended documentation.
+///
+/// Displays the help message followed by additional manual information about the
+/// application's purpose and capabilities.
 fn print_man() {
     print_help();
     println!("\nManual:");

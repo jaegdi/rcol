@@ -1,9 +1,21 @@
 use crate::args::AppArgs;
 use crate::processor::TableData;
+use regex::Regex;
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthStr;
-use regex::Regex;
 
+/// Calculates the visible width of a string, accounting for Unicode and ANSI escape codes.
+///
+/// Strips ANSI escape sequences (CSI and OSC codes) before calculating the display width
+/// using Unicode width rules. This ensures proper alignment in terminal output.
+///
+/// # Arguments
+///
+/// * `s` - The string to measure
+///
+/// # Returns
+///
+/// The visible width in character cells (not bytes)
 fn visible_width(s: &str) -> usize {
     // Regex to strip ANSI escape codes
     // CSI: \x1b\[ ... [a-zA-Z]
@@ -13,6 +25,23 @@ fn visible_width(s: &str) -> usize {
     UnicodeWidthStr::width(stripped.as_ref())
 }
 
+/// Formats and outputs table data according to the specified format.
+///
+/// Routes to the appropriate formatter based on output format flags:
+/// - CSV (`-csv`)
+/// - JSON (`-json`)
+/// - HTML (`-html`)
+/// - ASCII table (default)
+///
+/// # Arguments
+///
+/// * `data` - Processed table data to format
+/// * `args` - Application arguments specifying output format and options
+///
+/// # Returns
+///
+/// - `Ok(())` if output succeeds
+/// - `Err(io::Error)` if writing to stdout fails
 pub fn format_output(data: TableData, args: &AppArgs) -> io::Result<()> {
     if args.csv {
         format_csv(&data, args)
@@ -25,25 +54,54 @@ pub fn format_output(data: TableData, args: &AppArgs) -> io::Result<()> {
     }
 }
 
+/// Formats table data as CSV output.
+///
+/// Outputs headers (if present) followed by all data rows in standard CSV format,
+/// with proper escaping and quoting as needed.
+///
+/// # Arguments
+///
+/// * `data` - Table data to format
+/// * `_args` - Application arguments (currently unused for CSV formatting)
+///
+/// # Returns
+///
+/// - `Ok(())` if output succeeds
+/// - `Err(io::Error)` if writing fails
 fn format_csv(data: &TableData, _args: &AppArgs) -> io::Result<()> {
     let mut wtr = csv::Writer::from_writer(io::stdout());
-    
+
     if !data.headers.is_empty() {
         wtr.write_record(&data.headers)?;
     }
-    
+
     for row in &data.rows {
         wtr.write_record(row)?;
     }
-    
+
     wtr.flush()?;
     Ok(())
 }
 
+/// Formats table data as JSON output.
+///
+/// Supports two output modes:
+/// - Standard: Array of objects, where each object represents a row with header keys
+/// - Title column mode (`-jtc`): Object keyed by first column, with nested objects for remaining columns
+///
+/// # Arguments
+///
+/// * `data` - Table data to format
+/// * `args` - Application arguments (checks `-jtc` flag)
+///
+/// # Returns
+///
+/// - `Ok(())` if output succeeds
+/// - `Err(io::Error)` if writing fails
 fn format_json(data: &TableData, args: &AppArgs) -> io::Result<()> {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
-    
+
     if !data.headers.is_empty() {
         if args.jtc {
             let mut map = serde_json::Map::new();
@@ -52,7 +110,10 @@ fn format_json(data: &TableData, args: &AppArgs) -> io::Result<()> {
                     let mut obj = serde_json::Map::new();
                     for (i, val) in row.iter().enumerate().skip(1) {
                         if i < data.headers.len() {
-                            obj.insert(data.headers[i].clone(), serde_json::Value::String(val.clone()));
+                            obj.insert(
+                                data.headers[i].clone(),
+                                serde_json::Value::String(val.clone()),
+                            );
                         }
                     }
                     map.insert(key.clone(), serde_json::Value::Object(obj));
@@ -65,7 +126,10 @@ fn format_json(data: &TableData, args: &AppArgs) -> io::Result<()> {
                 let mut obj = serde_json::Map::new();
                 for (i, val) in row.iter().enumerate() {
                     if i < data.headers.len() {
-                        obj.insert(data.headers[i].clone(), serde_json::Value::String(val.clone()));
+                        obj.insert(
+                            data.headers[i].clone(),
+                            serde_json::Value::String(val.clone()),
+                        );
                     }
                 }
                 arr.push(obj);
@@ -75,11 +139,25 @@ fn format_json(data: &TableData, args: &AppArgs) -> io::Result<()> {
     } else {
         serde_json::to_writer_pretty(&mut handle, &data.rows)?;
     }
-    
+
     writeln!(handle)?;
     Ok(())
 }
 
+/// Formats table data as HTML table output.
+///
+/// Generates a complete HTML table with proper thead/tbody structure.
+/// Headers are output in `<th>` tags, data rows in `<td>` tags.
+///
+/// # Arguments
+///
+/// * `data` - Table data to format
+/// * `_args` - Application arguments (currently unused for HTML formatting)
+///
+/// # Returns
+///
+/// - `Ok(())` if output succeeds
+/// - `Err(io::Error)` if writing fails
 fn format_html(data: &TableData, _args: &AppArgs) -> io::Result<()> {
     println!("<table>");
     if !data.headers.is_empty() {
@@ -104,6 +182,10 @@ fn format_html(data: &TableData, _args: &AppArgs) -> io::Result<()> {
     Ok(())
 }
 
+/// Unicode box-drawing characters for table formatting.
+///
+/// Contains all the characters needed to draw table borders and separators
+/// using Unicode box-drawing characters or ASCII fallbacks.
 struct BoxChars {
     h: char,
     v: char,
@@ -119,43 +201,85 @@ struct BoxChars {
 }
 
 impl BoxChars {
+    /// Creates a `BoxChars` instance with Unicode box-drawing characters.
+    ///
+    /// Uses proper Unicode characters for smooth, professional-looking tables.
     fn unicode() -> Self {
         Self {
-            h: '─', v: '│',
-            tl: '┌', tr: '┐',
-            bl: '└', br: '┘',
-            tm: '┬', bm: '┴',
-            lm: '├', rm: '┤',
+            h: '─',
+            v: '│',
+            tl: '┌',
+            tr: '┐',
+            bl: '└',
+            br: '┘',
+            tm: '┬',
+            bm: '┴',
+            lm: '├',
+            rm: '┤',
             c: '┼',
         }
     }
-    
+
+    /// Creates a `BoxChars` instance with ASCII characters.
+    ///
+    /// Fallback option using basic ASCII characters (+, -, |) for environments
+    /// that don't support Unicode box-drawing characters.
     // Fallback if needed, but user requested unicode
     #[allow(dead_code)]
     fn ascii() -> Self {
         Self {
-            h: '-', v: '|',
-            tl: '+', tr: '+',
-            bl: '+', br: '+',
-            tm: '+', bm: '+',
-            lm: '+', rm: '+',
+            h: '-',
+            v: '|',
+            tl: '+',
+            tr: '+',
+            bl: '+',
+            br: '+',
+            tm: '+',
+            bm: '+',
+            lm: '+',
+            rm: '+',
             c: '+',
         }
     }
 }
 
+/// Formats table data as an ASCII/Unicode table with borders and alignment.
+///
+/// The primary formatting function that handles:
+/// - Column width calculation based on content
+/// - Proper alignment (numeric values right-aligned, text left-aligned)
+/// - Optional features: borders (`-pp`), separators (`-ts`, `-fs`, `-cs`), numbering (`-num`)
+/// - Padding and spacing control (`-w`)
+///
+/// # Arguments
+///
+/// * `data` - Table data to format
+/// * `args` - Application arguments controlling formatting options
+///
+/// # Returns
+///
+/// - `Ok(())` if output succeeds
+/// - `Err(io::Error)` if writing fails
+///
+/// # Formatting Behavior
+///
+/// - Automatically calculates column widths based on content
+/// - Right-aligns numeric values unless `-nn` is set
+/// - Left-aligns text values
+/// - Headers starting with '-' are right-aligned
+/// - Draws Unicode box characters for pretty printing when `-pp` is enabled
 fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
     // Calculate widths
     let mut widths = Vec::new();
     let mut num_cols = 0;
-    
+
     if !data.headers.is_empty() {
         num_cols = data.headers.len();
         for h in &data.headers {
             widths.push(visible_width(h));
         }
     }
-    
+
     for row in &data.rows {
         if row.len() > num_cols {
             num_cols = row.len();
@@ -185,50 +309,62 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
             }
         }
     }
-    
+
     // Determine padding
     let padding = " ".repeat(args.w);
     let col_sep = &args.colsep; // Used for non-pp mode or internal content separation?
     // If -pp, we use box chars for separation.
     // If NOT -pp, we use col_sep.
-    
+
     let draw_borders = args.pp;
     let draw_ts = args.ts || args.header.is_some();
     let draw_fs = args.fs;
     let draw_cs = args.cs || args.pp;
-    
+
     let chars = BoxChars::unicode();
 
     let print_separator = |widths: &[usize], left: char, right: char, cross: char, horiz: char| {
         let mut line = String::new();
-        if draw_borders { line.push(left); }
+        if draw_borders {
+            line.push(left);
+        }
         for (i, w) in widths.iter().enumerate() {
             if i > 0 {
-                if draw_borders || draw_cs { line.push(cross); }
+                if draw_borders || draw_cs {
+                    line.push(cross);
+                }
             }
             let total_w = w + 2 * args.w;
             for _ in 0..total_w {
                 line.push(horiz);
             }
         }
-        if draw_borders { line.push(right); }
+        if draw_borders {
+            line.push(right);
+        }
         println!("{}", line);
     };
 
     // Print Column Numbers if -num is set
     if args.num {
-        if draw_borders { 
+        if draw_borders {
             // Top border
             print_separator(&widths, chars.tl, chars.tr, chars.tm, chars.h);
         }
-        
+
         let mut line = String::new();
-        if draw_borders { line.push(chars.v); }
+        if draw_borders {
+            line.push(chars.v);
+        }
         for (i, w) in widths.iter().enumerate() {
             if i > 0 {
-                if draw_borders { line.push(chars.v); } 
-                else if draw_cs { line.push_str(col_sep); }
-                else { line.push_str(&padding); }
+                if draw_borders {
+                    line.push(chars.v);
+                } else if draw_cs {
+                    line.push_str(col_sep);
+                } else {
+                    line.push_str(&padding);
+                }
             }
             let num_str = if i < data.original_column_indices.len() {
                 (data.original_column_indices[i] + 1).to_string()
@@ -243,37 +379,45 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
             }
             line.push_str(&padding);
         }
-        if draw_borders { line.push(chars.v); }
+        if draw_borders {
+            line.push(chars.v);
+        }
         println!("{}", line);
-        
+
         // Separator between numbers and header/data
         if draw_borders || draw_ts {
-             if draw_borders {
-                 print_separator(&widths, chars.lm, chars.rm, chars.c, chars.h);
-             } else {
-                 print_separator(&widths, chars.h, chars.h, chars.h, chars.h);
-             }
+            if draw_borders {
+                print_separator(&widths, chars.lm, chars.rm, chars.c, chars.h);
+            } else {
+                print_separator(&widths, chars.h, chars.h, chars.h, chars.h);
+            }
         }
     } else {
         // No numbers, check if we need top border for header
         if !data.headers.is_empty() && draw_borders {
-             print_separator(&widths, chars.tl, chars.tr, chars.tm, chars.h);
+            print_separator(&widths, chars.tl, chars.tr, chars.tm, chars.h);
         } else if data.headers.is_empty() && draw_borders {
-             // No header, just data top border
-             print_separator(&widths, chars.tl, chars.tr, chars.tm, chars.h);
+            // No header, just data top border
+            print_separator(&widths, chars.tl, chars.tr, chars.tm, chars.h);
         }
     }
 
     // Print Header
     if !data.headers.is_empty() {
         let mut line = String::new();
-        if draw_borders { line.push(chars.v); }
-        
+        if draw_borders {
+            line.push(chars.v);
+        }
+
         for (i, h) in data.headers.iter().enumerate() {
             if i > 0 {
-                if draw_borders { line.push(chars.v); } 
-                else if draw_cs { line.push_str(col_sep); }
-                else { line.push_str(&padding); }
+                if draw_borders {
+                    line.push(chars.v);
+                } else if draw_cs {
+                    line.push_str(col_sep);
+                } else {
+                    line.push_str(&padding);
+                }
             } else if !draw_borders {
                 // No leading separator unless borders
             }
@@ -281,7 +425,7 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
             let align_right = h.starts_with('-');
             let content = if align_right { &h[1..] } else { h };
             let content_w = visible_width(content);
-            
+
             let w = widths[i];
             if args.nf {
                 line.push_str(content);
@@ -299,14 +443,16 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
                 line.push_str(&padding);
             }
         }
-        if draw_borders { line.push(chars.v); }
+        if draw_borders {
+            line.push(chars.v);
+        }
         println!("{}", line);
-        
+
         if draw_ts {
             if draw_borders {
                 print_separator(&widths, chars.lm, chars.rm, chars.c, chars.h);
             } else {
-                 print_separator(&widths, chars.h, chars.h, chars.h, chars.h);
+                print_separator(&widths, chars.h, chars.h, chars.h, chars.h);
             }
         }
     }
@@ -315,25 +461,35 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
     for (row_idx, row) in data.rows.iter().enumerate() {
         // Footer Separator: before the last row
         if draw_fs && row_idx > 0 && row_idx == data.rows.len() - 1 {
-             if draw_borders {
-                 print_separator(&widths, chars.lm, chars.rm, chars.c, chars.h);
-             } else {
-                 print_separator(&widths, chars.h, chars.h, chars.h, chars.h);
-             }
+            if draw_borders {
+                print_separator(&widths, chars.lm, chars.rm, chars.c, chars.h);
+            } else {
+                print_separator(&widths, chars.h, chars.h, chars.h, chars.h);
+            }
         }
 
         let mut line = String::new();
-        if draw_borders { line.push(chars.v); }
-        
+        if draw_borders {
+            line.push(chars.v);
+        }
+
         for (i, val) in row.iter().enumerate() {
             if i > 0 {
-                if draw_borders { line.push(chars.v); } 
-                else if draw_cs { line.push_str(col_sep); }
-                else { line.push_str(&padding); }
+                if draw_borders {
+                    line.push(chars.v);
+                } else if draw_cs {
+                    line.push_str(col_sep);
+                } else {
+                    line.push_str(&padding);
+                }
             }
-            
-            let w = if i < widths.len() { widths[i] } else { visible_width(val) };
-            
+
+            let w = if i < widths.len() {
+                widths[i]
+            } else {
+                visible_width(val)
+            };
+
             if args.nf {
                 line.push_str(val);
             } else {
@@ -342,7 +498,7 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
                 let val_w = visible_width(val);
                 let pad_len = w.saturating_sub(val_w);
                 let pad = " ".repeat(pad_len);
-                
+
                 if is_num {
                     line.push_str(&pad);
                     line.push_str(val);
@@ -353,10 +509,12 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
                 line.push_str(&padding);
             }
         }
-        if draw_borders { line.push(chars.v); }
+        if draw_borders {
+            line.push(chars.v);
+        }
         println!("{}", line);
     }
-    
+
     // Bottom Border
     if draw_borders {
         print_separator(&widths, chars.bl, chars.br, chars.bm, chars.h);

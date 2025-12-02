@@ -1,5 +1,9 @@
 use std::env;
 
+/// Application arguments parsed from command-line input.
+///
+/// Contains all configuration options for the rcol application, including input/output
+/// settings, formatting options, and column specifications.
 #[derive(Debug, Clone)]
 pub struct AppArgs {
     pub file: Option<String>,
@@ -32,6 +36,13 @@ pub struct AppArgs {
 }
 
 impl Default for AppArgs {
+    /// Creates a new `AppArgs` instance with default values.
+    ///
+    /// Default values include:
+    /// - Separator: single space
+    /// - Column separator: Unicode pipe character (│)
+    /// - Padding width: 1
+    /// - All boolean flags: false
     fn default() -> Self {
         Self {
             file: None,
@@ -39,7 +50,7 @@ impl Default for AppArgs {
             sep: " ".to_string(),
             mb: false,
             w: 1,
-            colsep: "|".to_string(),
+            colsep: "│".to_string(),
             filter: None,
             sortcol: None,
             gcol: None,
@@ -65,6 +76,23 @@ impl Default for AppArgs {
     }
 }
 
+/// Parses command-line arguments into an `AppArgs` structure.
+///
+/// Processes arguments from the command line, distinguishing between flags
+/// (starting with '-') and column specifications. Named parameters must appear
+/// before column numbers.
+///
+/// # Returns
+///
+/// - `Ok(AppArgs)` if arguments are successfully parsed
+/// - `Err(String)` if an unknown flag or invalid value is encountered
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - An unknown flag is provided
+/// - A flag requiring a value is missing its value
+/// - A numeric parameter receives an invalid value
 pub fn parse_args() -> Result<AppArgs, String> {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut app_args = AppArgs::default();
@@ -108,11 +136,13 @@ pub fn parse_args() -> Result<AppArgs, String> {
                     }
                     "sortcol" => {
                         let val_str = parse_value(value, &args, &mut i)?;
-                        app_args.sortcol = Some(val_str.parse().map_err(|_| "Invalid value for -sortcol")?);
+                        app_args.sortcol =
+                            Some(val_str.parse().map_err(|_| "Invalid value for -sortcol")?);
                     }
                     "gcol" => {
                         let val_str = parse_value(value, &args, &mut i)?;
-                        app_args.gcol = Some(val_str.parse().map_err(|_| "Invalid value for -gcol")?);
+                        app_args.gcol =
+                            Some(val_str.parse().map_err(|_| "Invalid value for -gcol")?);
                     }
                     "gcolval" => app_args.gcolval = true,
                     "nf" => app_args.nf = true,
@@ -132,9 +162,9 @@ pub fn parse_args() -> Result<AppArgs, String> {
                     "man" => app_args.man = true,
                     "v" | "verify" => app_args.verify = true,
                     _ => {
-                        // Unknown flag, assume it's a column number if it looks like one, 
+                        // Unknown flag, assume it's a column number if it looks like one,
                         // but requirements say named params must be before column numbers.
-                        // However, user might make mistakes. 
+                        // However, user might make mistakes.
                         // Strict interpretation: Unknown flag is an error or start of columns if it doesn't look like a flag?
                         // But wait, "All named parameters must be defined before the column numbers".
                         // So if we encounter something that is not a known flag, is it a column number?
@@ -158,6 +188,21 @@ pub fn parse_args() -> Result<AppArgs, String> {
     Ok(app_args)
 }
 
+/// Extracts a value for a command-line flag.
+///
+/// If the value is provided inline (e.g., `-flag=value`), returns it directly.
+/// Otherwise, looks ahead to the next argument position.
+///
+/// # Arguments
+///
+/// * `value` - Optional inline value from the flag
+/// * `args` - Slice of all command-line arguments
+/// * `i` - Current position in the arguments array (mutable, will be incremented if looking ahead)
+///
+/// # Returns
+///
+/// - `Ok(String)` containing the parsed value
+/// - `Err(String)` if no value is available
 fn parse_value(value: Option<&str>, args: &[String], i: &mut usize) -> Result<String, String> {
     if let Some(v) = value {
         Ok(v.to_string())

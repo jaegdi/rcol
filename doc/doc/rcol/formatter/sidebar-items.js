@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["format_ascii","format_csv","format_html","format_json","format_output","visible_width"],"struct":["BoxChars"]};
