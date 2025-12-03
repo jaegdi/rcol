@@ -3,6 +3,7 @@ use crate::processor::TableData;
 use regex::Regex;
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthStr;
+use serde_yaml::{Value};
 
 /// Calculates the visible width of a string, accounting for Unicode and ANSI escape codes.
 ///
@@ -47,6 +48,8 @@ pub fn format_output(data: TableData, args: &AppArgs) -> io::Result<()> {
         format_csv(&data, args)
     } else if args.json {
         format_json(&data, args)
+    } else if args.yaml {
+        format_yaml(&data, args)
     } else if args.html {
         format_html(&data, args)
     } else {
@@ -82,6 +85,71 @@ fn format_csv(data: &TableData, _args: &AppArgs) -> io::Result<()> {
     wtr.flush()?;
     Ok(())
 }
+
+/// Formats table data as YAML output.
+///
+/// Supports two modes:
+/// - Standard: List of maps (rows), each row is a map with header keys
+/// - Title column mode (`-jtc`): Object keyed by first column, nested objects for remaining columns
+///
+/// # Arguments
+///
+/// * `data` - Table data to format
+/// * `args` - Application arguments (checks `-jtc` flag)
+///
+/// # Returns
+///
+/// - `Ok(())` if output succeeds
+/// - `Err(io::Error)` if writing fails
+fn format_yaml(data: &TableData, args: &AppArgs) -> io::Result<()> {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+
+    if !data.headers.is_empty() {
+        if args.jtc {
+            let mut map = Mapping::new();
+            for row in &data.rows {
+                if let Some(key) = row.first() {
+                    let mut obj = Mapping::new();
+                    for (i, val) in row.iter().enumerate().skip(1) {
+                        if i < data.headers.len() {
+                            obj.insert(
+                                Value::String(data.headers[i].clone()),
+                                Value::String(val.clone()),
+                            );
+                        }
+                    }
+                    map.insert(
+                        Value::String(key.clone()),
+                        Value::Mapping(obj),
+                    );
+                }
+            }
+            write!(handle, "{}", serde_yaml::to_string(&map)?)?;
+        } else {
+            let mut arr = Vec::new();
+            for row in &data.rows {
+                let mut obj = Mapping::new();
+                for (i, val) in row.iter().enumerate() {
+                    if i < data.headers.len() {
+                        obj.insert(
+                            Value::String(data.headers[i].clone()),
+                            Value::String(val.clone()),
+                        );
+                    }
+                }
+                arr.push(Value::Mapping(obj));
+            }
+            write!(handle, "{}", serde_yaml::to_string(&arr)?)?;
+        }
+    } else {
+        write!(handle, "{}", serde_yaml::to_string(&data.rows)?)?;
+    }
+
+    writeln!(handle)?;
+    Ok(())
+}
+
 
 /// Formats table data as JSON output.
 ///
@@ -522,3 +590,8 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
 
     Ok(())
 }
+
+
+
+
+

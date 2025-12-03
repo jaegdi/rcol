@@ -90,6 +90,10 @@ pub struct AppArgs {
     #[arg(long)]
     pub json: bool,
 
+    /// Output as YAML
+    #[arg(long)]
+    pub yaml: bool,
+
     /// Output as HTML
     #[arg(long)]
     pub html: bool,
@@ -105,6 +109,10 @@ pub struct AppArgs {
     /// Specify which columns to output
     #[arg(trailing_var_arg = true)]
     pub columns: Vec<String>,
+
+    /// Output comprehensive man page
+    #[arg(short = 'M', long)]
+    pub manpage: bool,
 }
 
 impl Default for AppArgs {
@@ -131,10 +139,12 @@ impl Default for AppArgs {
             num: false,
             csv: false,
             json: false,
+            yaml: false,
             html: false,
             jtc: false,
             verify: false,
             columns: Vec::new(),
+            manpage: false,
         }
     }
 }

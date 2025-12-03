@@ -2,6 +2,7 @@
 name = "rcol"
 version = "0.1.0"
 edition = "2024"
+authors = ["Dirk Jäger <dirk.jaeger@ing.de>"]
 
 [dependencies]
 csv = "1.4"
@@ -10,6 +11,7 @@ clap = { version = "4.5", features = ["derive"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 unicode-width = "0.2"
+serde_yaml = "0.9.34"
 
 [[bin]]
 name = "rcol"
