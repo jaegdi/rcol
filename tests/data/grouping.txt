@@ -1,0 +1,9 @@
+Department Employee Salary
+Sales Alice 50000
+Sales Bob 55000
+Sales Charlie 52000
+Engineering David 75000
+Engineering Eve 80000
+Engineering Frank 72000
+Marketing Grace 60000
+Marketing Henry 58000

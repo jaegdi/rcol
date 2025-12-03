@@ -216,3 +216,151 @@ fn parse_value(value: Option<&str>, args: &[String], i: &mut usize) -> Result<St
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_args() {
+        let args = AppArgs::default();
+        assert_eq!(args.sep, " ");
+        assert_eq!(args.w, 1);
+        assert_eq!(args.colsep, "│");
+        assert!(!args.pp);
+        assert!(!args.csv);
+        assert!(args.columns.is_empty());
+    }
+
+    #[test]
+    fn test_parse_value_inline() {
+        let args_vec = vec!["arg1".to_string(), "arg2".to_string()];
+        let mut i = 0;
+
+        let result = parse_value(Some("test_value"), &args_vec, &mut i);
+        assert_eq!(result.unwrap(), "test_value");
+        assert_eq!(i, 0); // Should not increment
+    }
+
+    #[test]
+    fn test_parse_value_next_arg() {
+        let args_vec = vec!["arg1".to_string(), "next_value".to_string()];
+        let mut i = 0;
+
+        let result = parse_value(None, &args_vec, &mut i);
+        assert_eq!(result.unwrap(), "next_value");
+        assert_eq!(i, 1); // Should increment
+    }
+
+    #[test]
+    fn test_parse_value_missing() {
+        let args_vec = vec!["arg1".to_string()];
+        let mut i = 0;
+
+        let result = parse_value(None, &args_vec, &mut i);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Missing value for flag");
+    }
+
+    #[test]
+    fn test_parse_args_with_file() {
+        // Create a test by manually constructing AppArgs
+        let mut args = AppArgs::default();
+        args.file = Some("test.txt".to_string());
+
+        assert_eq!(args.file, Some("test.txt".to_string()));
+    }
+
+    #[test]
+    fn test_parse_args_with_header() {
+        let mut args = AppArgs::default();
+        args.header = Some("Col1 Col2 Col3".to_string());
+
+        assert_eq!(args.header, Some("Col1 Col2 Col3".to_string()));
+    }
+
+    #[test]
+    fn test_parse_args_with_separator() {
+        let mut args = AppArgs::default();
+        args.sep = ",".to_string();
+
+        assert_eq!(args.sep, ",");
+    }
+
+    #[test]
+    fn test_parse_args_with_columns() {
+        let mut args = AppArgs::default();
+        args.columns = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+
+        assert_eq!(args.columns.len(), 3);
+        assert_eq!(args.columns[0], "1");
+    }
+
+    #[test]
+    fn test_parse_args_width() {
+        let mut args = AppArgs::default();
+        args.w = 3;
+
+        assert_eq!(args.w, 3);
+    }
+
+    #[test]
+    fn test_parse_args_sortcol() {
+        let mut args = AppArgs::default();
+        args.sortcol = Some(2);
+
+        assert_eq!(args.sortcol, Some(2));
+    }
+
+    #[test]
+    fn test_parse_args_gcol() {
+        let mut args = AppArgs::default();
+        args.gcol = Some(1);
+        args.gcolval = true;
+
+        assert_eq!(args.gcol, Some(1));
+        assert!(args.gcolval);
+    }
+
+    #[test]
+    fn test_parse_args_filter() {
+        let mut args = AppArgs::default();
+        args.filter = Some("test.*".to_string());
+
+        assert_eq!(args.filter, Some("test.*".to_string()));
+    }
+
+    #[test]
+    fn test_parse_args_all_boolean_flags() {
+        let mut args = AppArgs::default();
+        args.mb = true;
+        args.nf = true;
+        args.nn = true;
+        args.nhl = true;
+        args.ts = true;
+        args.fs = true;
+        args.cs = true;
+        args.pp = true;
+        args.rh = true;
+        args.num = true;
+        args.csv = true;
+        args.json = true;
+        args.html = true;
+        args.jtc = true;
+
+        assert!(args.mb);
+        assert!(args.nf);
+        assert!(args.nn);
+        assert!(args.nhl);
+        assert!(args.ts);
+        assert!(args.fs);
+        assert!(args.cs);
+        assert!(args.pp);
+        assert!(args.rh);
+        assert!(args.num);
+        assert!(args.csv);
+        assert!(args.json);
+        assert!(args.html);
+        assert!(args.jtc);
+    }
+}

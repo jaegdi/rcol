@@ -317,3 +317,241 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
         original_column_indices: col_indices,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_table_data_creation() {
+        let data = TableData {
+            headers: vec!["Col1".to_string(), "Col2".to_string()],
+            rows: vec![
+                vec!["A".to_string(), "B".to_string()],
+                vec!["C".to_string(), "D".to_string()],
+            ],
+            original_column_indices: vec![0, 1],
+        };
+
+        assert_eq!(data.headers.len(), 2);
+        assert_eq!(data.rows.len(), 2);
+        assert_eq!(data.original_column_indices, vec![0, 1]);
+    }
+
+    #[test]
+    fn test_process_simple_data() {
+        let lines = vec![
+            "Name Age".to_string(),
+            "Alice 30".to_string(),
+            "Bob 25".to_string(),
+        ];
+
+        let args = AppArgs::default();
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.headers, vec!["Name", "Age"]);
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(result.rows[0], vec!["Alice", "30"]);
+        assert_eq!(result.rows[1], vec!["Bob", "25"]);
+    }
+
+    #[test]
+    fn test_process_with_filter() {
+        let lines = vec![
+            "Name Age".to_string(),
+            "Alice 30".to_string(),
+            "Bob 25".to_string(),
+            "Charlie 35".to_string(),
+        ];
+
+        let mut args = AppArgs::default();
+        args.filter = Some("Bob".to_string());
+
+        let result = process_input(lines, &args).unwrap();
+
+        // Filter is applied AFTER header extraction, so should get 1 data row
+        // But header doesn't match filter, so it gets treated as data and filtered out
+        // Actually, looking at the code: filter is applied first, then header is extracted
+        // So "Name Age" will be filtered out, and Bob becomes the header
+        assert_eq!(result.headers, vec!["Bob", "25"]);
+        assert_eq!(result.rows.len(), 0);
+    }
+
+    #[test]
+    fn test_process_with_custom_header() {
+        let lines = vec!["Alice 30".to_string(), "Bob 25".to_string()];
+
+        let mut args = AppArgs::default();
+        args.header = Some("Name Age".to_string());
+        args.nhl = true;
+
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.headers, vec!["Name", "Age"]);
+        assert_eq!(result.rows.len(), 2);
+    }
+
+    #[test]
+    fn test_process_column_selection() {
+        let lines = vec![
+            "Name Age City".to_string(),
+            "Alice 30 NYC".to_string(),
+            "Bob 25 LA".to_string(),
+        ];
+
+        let mut args = AppArgs::default();
+        args.columns = vec!["1".to_string(), "3".to_string()];
+
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.headers, vec!["Name", "City"]);
+        assert_eq!(result.rows[0], vec!["Alice", "NYC"]);
+        assert_eq!(result.rows[1], vec!["Bob", "LA"]);
+    }
+
+    #[test]
+    fn test_process_column_range() {
+        let lines = vec!["A B C D".to_string(), "1 2 3 4".to_string()];
+
+        let mut args = AppArgs::default();
+        args.columns = vec!["2:4".to_string()];
+
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.headers, vec!["B", "C", "D"]);
+        assert_eq!(result.rows[0], vec!["2", "3", "4"]);
+    }
+
+    #[test]
+    fn test_process_column_reorder() {
+        let lines = vec!["A B C".to_string(), "1 2 3".to_string()];
+
+        let mut args = AppArgs::default();
+        args.columns = vec!["3".to_string(), "1".to_string(), "2".to_string()];
+
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.headers, vec!["C", "A", "B"]);
+        assert_eq!(result.rows[0], vec!["3", "1", "2"]);
+    }
+
+    #[test]
+    fn test_process_sorting_numeric() {
+        let lines = vec![
+            "Name Value".to_string(),
+            "C 300".to_string(),
+            "A 100".to_string(),
+            "B 200".to_string(),
+        ];
+
+        let mut args = AppArgs::default();
+        args.sortcol = Some(2);
+
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.rows[0][1], "100");
+        assert_eq!(result.rows[1][1], "200");
+        assert_eq!(result.rows[2][1], "300");
+    }
+
+    #[test]
+    fn test_process_sorting_text() {
+        let lines = vec![
+            "Name Age".to_string(),
+            "Charlie 30".to_string(),
+            "Alice 25".to_string(),
+            "Bob 35".to_string(),
+        ];
+
+        let mut args = AppArgs::default();
+        args.sortcol = Some(1);
+
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.rows[0][0], "Alice");
+        assert_eq!(result.rows[1][0], "Bob");
+        assert_eq!(result.rows[2][0], "Charlie");
+    }
+
+    #[test]
+    fn test_process_grouping() {
+        let lines = vec![
+            "Dept Name".to_string(),
+            "Sales Alice".to_string(),
+            "Sales Bob".to_string(),
+            "Engineering Charlie".to_string(),
+        ];
+
+        let mut args = AppArgs::default();
+        args.gcol = Some(1);
+
+        let result = process_input(lines, &args).unwrap();
+
+        // Second row should have empty dept (grouping hides repeated values)
+        assert_eq!(result.rows[0][0], "Sales");
+        assert_eq!(result.rows[1][0], ""); // Hidden
+        assert_eq!(result.rows[3][0], "Engineering");
+    }
+
+    #[test]
+    fn test_process_with_mb() {
+        let lines = vec!["Name    Age".to_string(), "Alice   30".to_string()];
+
+        let mut args = AppArgs::default();
+        args.mb = true;
+
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.headers, vec!["Name", "Age"]);
+        assert_eq!(result.rows[0], vec!["Alice", "30"]);
+    }
+
+    #[test]
+    fn test_process_remove_header() {
+        let lines = vec![
+            "Skip this line".to_string(),
+            "Name Age".to_string(),
+            "Alice 30".to_string(),
+        ];
+
+        let mut args = AppArgs::default();
+        args.rh = true;
+        // Also need to tell it there's no header in remaining lines
+        args.nhl = true;
+        args.header = Some("Name Age".to_string());
+
+        let result = process_input(lines, &args).unwrap();
+
+        // -rh removes first line, -nhl treats rest as data, custom header applied
+        assert_eq!(result.headers, vec!["Name", "Age"]);
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(result.rows[0], vec!["Name", "Age"]);
+        assert_eq!(result.rows[1], vec!["Alice", "30"]);
+    }
+
+    #[test]
+    fn test_process_no_headline() {
+        let lines = vec!["Alice 30".to_string(), "Bob 25".to_string()];
+
+        let mut args = AppArgs::default();
+        args.nhl = true;
+        args.header = Some("Name Age".to_string()); // Need to provide header when using -nhl
+
+        let result = process_input(lines, &args).unwrap();
+
+        // With -nhl and custom header, header is set and all lines are data
+        assert_eq!(result.headers, vec!["Name", "Age"]);
+        assert_eq!(result.rows.len(), 2);
+    }
+
+    #[test]
+    fn test_process_empty_input() {
+        let lines = vec![];
+        let args = AppArgs::default();
+
+        let result = process_input(lines, &args).unwrap();
+
+        assert!(result.headers.is_empty());
+        assert!(result.rows.is_empty());
+    }
+}

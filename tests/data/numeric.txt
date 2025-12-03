@@ -1,0 +1,6 @@
+Product Price Quantity
+Laptop 999.99 5
+Mouse 25.50 120
+Keyboard 75.00 45
+Monitor 350.00 12
+Webcam 89.99 30
