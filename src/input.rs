@@ -30,7 +30,7 @@ pub fn read_input(args: &AppArgs) -> io::Result<Vec<String>> {
         let file = File::open(filename)?;
         let reader = BufReader::new(file);
         for line in reader.lines() {
-            lines.push(line?);
+           lines.push(line?.trim().to_string());
         }
     }
 
@@ -44,7 +44,7 @@ pub fn read_input(args: &AppArgs) -> io::Result<Vec<String>> {
     if !stdin.is_terminal() || args.file.is_none() {
         let reader = stdin.lock();
         for line in reader.lines() {
-            lines.push(line?);
+           lines.push(line?.trim().to_string());
         }
     }
 
