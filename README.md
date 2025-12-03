@@ -58,57 +58,36 @@ It supports:
 *   `-fs`
     **Footer Separator**. Draw a line before the last row of data.
 
-*   `-cs`
-    **Column Separator**. Draw a vertical line between columns.
+## Options
 
-*   `-colsep='STR'`
-    **Column Seperator**Define the string used for column separation in non-pretty-print mode (default `|`).
-
-*   `-num`
-    **Numbering**. Add a row with column numbers at the top.
-    These numbers correspond to the **input** column indices.
-
-*   `-nf`
-    **No Format**. Do not align columns to a common width.
-
-*   `-nn`
-    **No Numerical**. Disable automatic right-alignment of numerical values.
-
-### Processing
-*   `-filter='REGEX'`
-    **Filter**. Process only lines matching the given *REGEX*.
-
-*   `-sortcol=N`
-    **Sort**. Sort output by column *N* (1-based index).
-
-*   `-gcol=N`
-    **Grouping Column**. Group by column *N*. Replaces repeated values in this column with empty strings.
-
-*   `-gcolval`
-    **Grouping Column Value**. When using `-gcol`, keep the repeated values instead of replacing them with empty strings.
-
-### Output Formats
-*   `-csv`
-    **CSV**. Output as Comma Separated Values.
-
-*   `-json`
-    **JSON**. Output as JSON.
-
-*   `-jtc`
-    **JSON Title Column**. Use the first column as the key for JSON objects (requires headers).
-
-*   `-html`
-    **HTML**. Output as an HTML table.
-
-### General
-*   `-help`, `-h`
-    **Help**. Print help message.
-
-*   `-man`
-    **Manual**. Print manual.
-
-*   `-v`, `-verify`
-    **Verify**. Print parameter verification info.
+| Short | Long | Description |
+| :--- | :--- | :--- |
+| `-f` | `--file=FILENAME` | Read input from FILENAME |
+| `-H` | `--header=HEADER` | Define a custom header line |
+| `-s` | `--sep=CHAR` | Define the input separator (default ' ') |
+| `-m` | `--mb` | Treat multiple consecutive separators as a single delimiter |
+| `-w` | `--w=N` | Set padding width between columns (default 1) |
+| `-C` | `--colsep=STR` | Define the string used for column separation (default '│') |
+| `-F` | `--filter=REGEX` | Process only lines matching the given REGEX |
+| `-S` | `--sortcol=N` | Sort output by column N (1-based index) |
+| `-g` | `--gcol=N` | Group by column N |
+| | `--gcolval` | When using -gcol, keep the repeated values |
+| | `--nf` | No Format: Do not align columns |
+| | `--nn` | No Numerical: Disable numeric alignment |
+| | `--nhl` | No Headline: Treat first line as data |
+| | `--ts` | Title Separator |
+| | `--fs` | Footer Separator |
+| | `--cs` | Column Separator |
+| `-p` | `--pp` | Pretty Print |
+| | `--rh` | Remove Header |
+| `-n` | `--num` | Numbering |
+| | `--csv` | Output as CSV |
+| | `--json` | Output as JSON |
+| | `--html` | Output as HTML |
+| | `--jtc` | JSON Title Column |
+| `-v` | `--verify` | Print parameter verification info |
+| `-h` | `--help` | Print help message |
+| | `--man` | Print manual |
 
 ## COLUMNS
 Specify which columns to output using 1-based indices.
@@ -123,11 +102,75 @@ If no columns are specified, all columns are output.
 
 [rcol rust doc](doc/doc/rcol/index.html)
 
+## Examples
+
+### 1. Basic Usage
+
+Read from a file and display columns 1 and 3:
+
+```bash
+rcol --file=data.txt 1 3
+```
+
+### 2. Custom Header and Separator
+
+Read a CSV file, use comma as separator, and provide a custom header:
+
+```bash
+rcol --sep=, --header="Name Age City" --file=data.csv
+```
+
+### 3. Pretty Print with Filtering
+
+Filter lines containing "Alice" and pretty print the output:
+
+```bash
+rcol --pp --filter="Alice" --file=data.txt
+```
+
+### 4. Sorting
+
+Sort by the second column (Age):
+
+```bash
+rcol --sortcol=2 --file=data.txt
+```
+
+### 5. Grouping
+
+Group by the first column (Department) and hide repeated values:
+
+```bash
+rcol --gcol=1 --file=data.txt
+```
+
+### 6. Output Formats
+
+Output as JSON:
+
+```bash
+rcol --json --file=data.txt
+```
+
+Output as HTML table:
+
+```bash
+rcol --html --file=data.txt
+```
+
+### 7. Complex Formatting
+
+Combine multiple options:
+
+```bash
+rcol --pp --mb --gcol=1 --sortcol=1 --nhl --header="RIGHTS USER GROUP SIZE UNIT DAY MONTH CAL TIME YEAR S NAME" --file=test_data_03.txt
+```
+
 ## EXAMPLES
 
 For the examples, simple commands like `ls` or `ps` are used as table providers to keep the reproducibility of the `rcol` examples simple. However, the actual purpose of `rcol` is not necessarily clear from these examples.
 This becomes more apparent when formatting the output of `oc get pods -A` with `rcol`. Without using `rcol`, the column widths of the output vary per namespace.
-For example: `oc get pods -A --no-headers | rcol -mb -pp` then formats the column widths across all namespaces. This makes the output appear as a neatly formatted table.
+For example: `oc get pods -A --no-headers | rcol -m -p` then formats the column widths across all namespaces. This makes the output appear as a neatly formatted table.
 
 **1. Basic formatting of `ls -l` output:**
 ```bash
@@ -293,8 +336,8 @@ Example Result:
 │            │ dirk │ dirk  │   34 │ KB   │ Mon │ Nov   │  24 │ 11:00:12 │ 2025 │  │ LICENSE          │
 │            │ dirk │ dirk  │  6.9 │ KB   │ Mon │ Nov   │  24 │ 14:51:56 │ 2025 │  │ README.md        │
 │            │ dirk │ dirk  │   79 │ B    │ Mon │ Nov   │  24 │ 12:19:02 │ 2025 │  │ test_config.yaml │
-│            │ dirk │ dirk  │  2.6 │ KB   │ Mon │ Nov   │  24 │ 11:00:12 │ 2025 │  │ testpass.kdbx    │
-│            │ dirk │ dirk  │   10 │ B    │ Mon │ Nov   │  24 │ 11:00:12 │ 2025 │  │ testpasswd       │
+│            │ dirk │ dirk  │  2.6 │ KB   │ Mon │ Nov   │  24 │ 11:00:12 │ 2025 │   │ testpass.kdbx    │
+│            │ dirk │ dirk  │   10 │ B    │ Mon │ Nov   │  24 │ 11:00:12 │ 2025 │   │ testpasswd       │
 │            │      │       │      │      │     │       │     │          │      │   │                  │
 │ .rwxr-xr-x │ dirk │ dirk  │  1.5 │ KB   │ Mon │ Nov   │  24 │ 14:37:40 │ 2025 │  │ build.sh         │
 │            │      │       │      │      │     │       │     │          │      │   │                  │

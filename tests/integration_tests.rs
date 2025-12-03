@@ -34,7 +34,7 @@ fn run_rcol(args: &[&str], input: Option<&str>) -> Result<String, String> {
 #[test]
 fn test_basic_formatting() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap()], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap()], None).unwrap();
 
     assert!(result.contains("Name"));
     assert!(result.contains("Age"));
@@ -45,7 +45,7 @@ fn test_basic_formatting() {
 #[test]
 fn test_column_selection() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "1", "3"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "1", "3"], None).unwrap();
 
     assert!(result.contains("Name"));
     assert!(result.contains("City"));
@@ -56,7 +56,7 @@ fn test_column_selection() {
 #[test]
 fn test_column_range() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "1:2"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "1:2"], None).unwrap();
 
     assert!(result.contains("Name"));
     assert!(result.contains("Age"));
@@ -65,7 +65,11 @@ fn test_column_range() {
 #[test]
 fn test_column_reordering() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "3", "1", "2"], None).unwrap();
+    let result = run_rcol(
+        &["--file", data_path.to_str().unwrap(), "3", "1", "2"],
+        None,
+    )
+    .unwrap();
     // City should come before Name in the output
     assert!(result.contains("City"));
     assert!(result.contains("Name"));
@@ -74,7 +78,7 @@ fn test_column_reordering() {
 #[test]
 fn test_pretty_print() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-pp"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--pp"], None).unwrap();
 
     // Check for box drawing characters
     assert!(result.contains("┌"));
@@ -87,7 +91,7 @@ fn test_pretty_print() {
 fn test_filter() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(
-        &["-file", data_path.to_str().unwrap(), "-filter=Alice"],
+        &["--file", data_path.to_str().unwrap(), "--filter", "Alice"],
         None,
     )
     .unwrap();
@@ -100,7 +104,11 @@ fn test_filter() {
 #[test]
 fn test_sort_by_column() {
     let data_path = get_test_data_path("numeric.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-sortcol=2"], None).unwrap();
+    let result = run_rcol(
+        &["--file", data_path.to_str().unwrap(), "--sortcol", "2"],
+        None,
+    )
+    .unwrap();
 
     let lines: Vec<&str> = result.lines().collect();
     // Mouse (25.50) should come before Keyboard (75.00)
@@ -118,7 +126,11 @@ fn test_sort_by_column() {
 #[test]
 fn test_grouping() {
     let data_path = get_test_data_path("grouping.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-gcol=1"], None).unwrap();
+    let result = run_rcol(
+        &["--file", data_path.to_str().unwrap(), "--gcol", "1"],
+        None,
+    )
+    .unwrap();
 
     // Second and third Sales entries should have Department hidden
     let lines: Vec<&str> = result.lines().collect();
@@ -131,7 +143,7 @@ fn test_grouping() {
 #[test]
 fn test_csv_output() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-csv"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--csv"], None).unwrap();
 
     // CSV should have comma-separated values
     assert!(result.contains(","));
@@ -141,7 +153,7 @@ fn test_csv_output() {
 #[test]
 fn test_json_output() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-json"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--json"], None).unwrap();
 
     // JSON should be valid
     assert!(result.contains("{"));
@@ -154,7 +166,7 @@ fn test_json_output() {
 fn test_json_title_column() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(
-        &["-file", data_path.to_str().unwrap(), "-json", "-jtc"],
+        &["--file", data_path.to_str().unwrap(), "--json", "--jtc"],
         None,
     )
     .unwrap();
@@ -167,7 +179,7 @@ fn test_json_title_column() {
 #[test]
 fn test_html_output() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-html"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--html"], None).unwrap();
 
     assert!(result.contains("<table>"));
     assert!(result.contains("</table>"));
@@ -180,9 +192,10 @@ fn test_custom_header() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(
         &[
-            "-file",
+            "--file",
             data_path.to_str().unwrap(),
-            "-header=Person Years Location",
+            "--header",
+            "Person Years Location",
             "1",
             "2",
             "3",
@@ -199,7 +212,7 @@ fn test_custom_header() {
 #[test]
 fn test_no_headline() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-nhl"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--nhl"], None).unwrap();
 
     // All lines including first should be treated as data
     // The header row "Name Age City" should appear as data
@@ -209,7 +222,7 @@ fn test_no_headline() {
 #[test]
 fn test_remove_header() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-rh"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--rh"], None).unwrap();
 
     // First line (Name Age City) should be removed
     // Alice should be in header position
@@ -223,7 +236,7 @@ fn test_more_blanks() {
     let temp_path = std::env::temp_dir().join("rcol_test_mb.txt");
     fs::write(&temp_path, temp_data).unwrap();
 
-    let result = run_rcol(&["-file", temp_path.to_str().unwrap(), "-mb"], None).unwrap();
+    let result = run_rcol(&["--file", temp_path.to_str().unwrap(), "--mb"], None).unwrap();
 
     assert!(result.contains("Name"));
     assert!(result.contains("Age"));
@@ -235,7 +248,7 @@ fn test_more_blanks() {
 #[test]
 fn test_title_separator() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-ts"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--ts"], None).unwrap();
 
     // Should have a separator line after header
     assert!(result.contains("─"));
@@ -244,7 +257,7 @@ fn test_title_separator() {
 #[test]
 fn test_column_separator() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-cs"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--cs"], None).unwrap();
 
     // Should have column separators
     assert!(result.contains("│"));
@@ -253,7 +266,11 @@ fn test_column_separator() {
 #[test]
 fn test_column_numbering() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-num", "-pp"], None).unwrap();
+    let result = run_rcol(
+        &["--file", data_path.to_str().unwrap(), "--num", "--pp"],
+        None,
+    )
+    .unwrap();
 
     // Should show column numbers (1, 2, 3)
     assert!(result.contains("1"));
@@ -268,7 +285,7 @@ fn test_custom_separator() {
     let temp_path = std::env::temp_dir().join("rcol_test_sep.csv");
     fs::write(&temp_path, temp_data).unwrap();
 
-    let result = run_rcol(&["-file", temp_path.to_str().unwrap(), "-sep=,"], None).unwrap();
+    let result = run_rcol(&["--file", temp_path.to_str().unwrap(), "--sep", ","], None).unwrap();
 
     assert!(result.contains("Name"));
     assert!(result.contains("Alice"));
@@ -280,8 +297,8 @@ fn test_custom_separator() {
 #[test]
 fn test_width_padding() {
     let data_path = get_test_data_path("simple.txt");
-    let result_w1 = run_rcol(&["-file", data_path.to_str().unwrap(), "-w=1"], None).unwrap();
-    let result_w3 = run_rcol(&["-file", data_path.to_str().unwrap(), "-w=3"], None).unwrap();
+    let result_w1 = run_rcol(&["--file", data_path.to_str().unwrap(), "-w", "1"], None).unwrap();
+    let result_w3 = run_rcol(&["--file", data_path.to_str().unwrap(), "-w", "3"], None).unwrap();
 
     // w=3 should have more spaces between columns
     assert!(result_w3.len() > result_w1.len());
@@ -290,7 +307,7 @@ fn test_width_padding() {
 #[test]
 fn test_no_format() {
     let data_path = get_test_data_path("simple.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-nf"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--nf"], None).unwrap();
 
     // Output should still contain the data
     assert!(result.contains("Alice"));
@@ -300,7 +317,7 @@ fn test_no_format() {
 #[test]
 fn test_no_numerical_alignment() {
     let data_path = get_test_data_path("numeric.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap(), "-nn"], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--nn"], None).unwrap();
 
     // Numbers should still be present
     assert!(result.contains("999.99"));
@@ -312,7 +329,7 @@ fn test_empty_input() {
     let temp_path = std::env::temp_dir().join("rcol_test_empty.txt");
     fs::write(&temp_path, "").unwrap();
 
-    let result = run_rcol(&["-file", temp_path.to_str().unwrap()], None).unwrap();
+    let result = run_rcol(&["--file", temp_path.to_str().unwrap()], None).unwrap();
 
     // Should handle empty input gracefully
     assert_eq!(result.trim(), "");
@@ -326,7 +343,7 @@ fn test_single_column() {
     let temp_path = std::env::temp_dir().join("rcol_test_single.txt");
     fs::write(&temp_path, temp_data).unwrap();
 
-    let result = run_rcol(&["-file", temp_path.to_str().unwrap()], None).unwrap();
+    let result = run_rcol(&["--file", temp_path.to_str().unwrap()], None).unwrap();
 
     assert!(result.contains("Name"));
     assert!(result.contains("Alice"));
@@ -338,7 +355,7 @@ fn test_single_column() {
 #[test]
 fn test_irregular_columns() {
     let data_path = get_test_data_path("irregular.txt");
-    let result = run_rcol(&["-file", data_path.to_str().unwrap()], None).unwrap();
+    let result = run_rcol(&["--file", data_path.to_str().unwrap()], None).unwrap();
 
     // Should handle rows with different column counts
     assert!(result.contains("Alice"));
@@ -354,13 +371,16 @@ fn test_complex_example_from_readme() {
     let data_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data_03.txt");
     let result = run_rcol(
         &[
-            "-pp",
-            "-mb",
-            "-gcol=1",
-            "-sortcol=1",
-            "-nhl",
-            "-header=RIGHTS USER GROUP SIZE UNIT DAY MONTH CAL TIME YEAR S NAME",
-            "-file",
+            "--pp",
+            "--mb",
+            "--gcol",
+            "1",
+            "--sortcol",
+            "1",
+            "--nhl",
+            "--header",
+            "RIGHTS USER GROUP SIZE UNIT DAY MONTH CAL TIME YEAR S NAME",
+            "--file",
             data_path.to_str().unwrap(),
         ],
         None,
