@@ -13,6 +13,7 @@ serde = { version = "1.0", features = ["derive"] }
 unicode-width = "0.2"
 serde_yaml = "0.9.34"
 
+
 [[bin]]
 name = "rcol"
 path = "src/main.rs"

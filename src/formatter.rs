@@ -1,9 +1,9 @@
 use crate::args::AppArgs;
 use crate::processor::TableData;
 use regex::Regex;
+use serde_yaml::{Mapping, Value};
 use std::io::{self, Write};
 use unicode_width::UnicodeWidthStr;
-use serde_yaml::{Value};
 
 /// Calculates the visible width of a string, accounting for Unicode and ANSI escape codes.
 ///
@@ -119,13 +119,14 @@ fn format_yaml(data: &TableData, args: &AppArgs) -> io::Result<()> {
                             );
                         }
                     }
-                    map.insert(
-                        Value::String(key.clone()),
-                        Value::Mapping(obj),
-                    );
+                    map.insert(Value::String(key.clone()), Value::Mapping(obj));
                 }
             }
-            write!(handle, "{}", serde_yaml::to_string(&map)?)?;
+            write!(
+                handle,
+                "{}",
+                serde_yaml::to_string(&map).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+            )?;
         } else {
             let mut arr = Vec::new();
             for row in &data.rows {
@@ -140,16 +141,24 @@ fn format_yaml(data: &TableData, args: &AppArgs) -> io::Result<()> {
                 }
                 arr.push(Value::Mapping(obj));
             }
-            write!(handle, "{}", serde_yaml::to_string(&arr)?)?;
+            write!(
+                handle,
+                "{}",
+                serde_yaml::to_string(&arr).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+            )?;
         }
     } else {
-        write!(handle, "{}", serde_yaml::to_string(&data.rows)?)?;
+        write!(
+            handle,
+            "{}",
+            serde_yaml::to_string(&data.rows)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+        )?;
     }
 
     writeln!(handle)?;
     Ok(())
 }
-
 
 /// Formats table data as JSON output.
 ///
@@ -590,8 +599,3 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
 
     Ok(())
 }
-
-
-
-
-
