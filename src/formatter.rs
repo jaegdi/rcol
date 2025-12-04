@@ -17,13 +17,38 @@ use unicode_width::UnicodeWidthStr;
 /// # Returns
 ///
 /// The visible width in character cells (not bytes)
-fn visible_width(s: &str) -> usize {
+/// Strips ANSI escape sequences from a string.
+///
+/// # Arguments
+///
+/// * `s` - The string to strip
+///
+/// # Returns
+///
+/// A new String with ANSI codes removed
+fn strip_ansi(s: &str) -> String {
     // Regex to strip ANSI escape codes
     // CSI: \x1b\[ ... [a-zA-Z]
     // OSC: \x1b\] ... (\x07|\x1b\\)
     let ansi_regex = Regex::new(r"(\x1b\[[0-9;?]*[a-zA-Z])|(\x1b\].*?(\x07|\x1b\\))").unwrap();
-    let stripped = ansi_regex.replace_all(s, "");
-    UnicodeWidthStr::width(stripped.as_ref())
+    ansi_regex.replace_all(s, "").to_string()
+}
+
+/// Calculates the visible width of a string, accounting for Unicode and ANSI escape codes.
+///
+/// Strips ANSI escape sequences (CSI and OSC codes) before calculating the display width
+/// using Unicode width rules. This ensures proper alignment in terminal output.
+///
+/// # Arguments
+///
+/// * `s` - The string to measure
+///
+/// # Returns
+///
+/// The visible width in character cells (not bytes)
+fn visible_width(s: &str) -> usize {
+    let stripped = strip_ansi(s);
+    UnicodeWidthStr::width(stripped.as_str())
 }
 
 /// Formats and outputs table data according to the specified format.
@@ -114,12 +139,12 @@ fn format_yaml(data: &TableData, args: &AppArgs) -> io::Result<()> {
                     for (i, val) in row.iter().enumerate().skip(1) {
                         if i < data.headers.len() {
                             obj.insert(
-                                Value::String(data.headers[i].clone()),
-                                Value::String(val.clone()),
+                                Value::String(strip_ansi(&data.headers[i])),
+                                Value::String(strip_ansi(val)),
                             );
                         }
                     }
-                    map.insert(Value::String(key.clone()), Value::Mapping(obj));
+                    map.insert(Value::String(strip_ansi(key)), Value::Mapping(obj));
                 }
             }
             write!(
@@ -134,8 +159,8 @@ fn format_yaml(data: &TableData, args: &AppArgs) -> io::Result<()> {
                 for (i, val) in row.iter().enumerate() {
                     if i < data.headers.len() {
                         obj.insert(
-                            Value::String(data.headers[i].clone()),
-                            Value::String(val.clone()),
+                            Value::String(strip_ansi(&data.headers[i])),
+                            Value::String(strip_ansi(val)),
                         );
                     }
                 }
@@ -148,10 +173,16 @@ fn format_yaml(data: &TableData, args: &AppArgs) -> io::Result<()> {
             )?;
         }
     } else {
+        // Strip ANSI from raw rows if no headers
+        let stripped_rows: Vec<Vec<String>> = data
+            .rows
+            .iter()
+            .map(|row| row.iter().map(|s| strip_ansi(s)).collect())
+            .collect();
         write!(
             handle,
             "{}",
-            serde_yaml::to_string(&data.rows)
+            serde_yaml::to_string(&stripped_rows)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
         )?;
     }
@@ -188,12 +219,12 @@ fn format_json(data: &TableData, args: &AppArgs) -> io::Result<()> {
                     for (i, val) in row.iter().enumerate().skip(1) {
                         if i < data.headers.len() {
                             obj.insert(
-                                data.headers[i].clone(),
-                                serde_json::Value::String(val.clone()),
+                                strip_ansi(&data.headers[i]),
+                                serde_json::Value::String(strip_ansi(val)),
                             );
                         }
                     }
-                    map.insert(key.clone(), serde_json::Value::Object(obj));
+                    map.insert(strip_ansi(key), serde_json::Value::Object(obj));
                 }
             }
             serde_json::to_writer_pretty(&mut handle, &map)?;
@@ -204,8 +235,8 @@ fn format_json(data: &TableData, args: &AppArgs) -> io::Result<()> {
                 for (i, val) in row.iter().enumerate() {
                     if i < data.headers.len() {
                         obj.insert(
-                            data.headers[i].clone(),
-                            serde_json::Value::String(val.clone()),
+                            strip_ansi(&data.headers[i]),
+                            serde_json::Value::String(strip_ansi(val)),
                         );
                     }
                 }
@@ -214,7 +245,13 @@ fn format_json(data: &TableData, args: &AppArgs) -> io::Result<()> {
             serde_json::to_writer_pretty(&mut handle, &arr)?;
         }
     } else {
-        serde_json::to_writer_pretty(&mut handle, &data.rows)?;
+        // Strip ANSI from raw rows if no headers
+        let stripped_rows: Vec<Vec<String>> = data
+            .rows
+            .iter()
+            .map(|row| row.iter().map(|s| strip_ansi(s)).collect())
+            .collect();
+        serde_json::to_writer_pretty(&mut handle, &stripped_rows)?;
     }
 
     writeln!(handle)?;
