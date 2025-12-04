@@ -446,6 +446,12 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
             if i > 0 {
                 if draw_borders || draw_cs {
                     line.push(cross);
+                } else {
+                    // If no vertical separator, we still have padding between columns in the data rows.
+                    // We need to extend the horizontal line across this padding to match the total width.
+                    for _ in 0..args.w {
+                        line.push(horiz);
+                    }
                 }
             }
             let total_w = w + 2 * args.w;
