@@ -382,18 +382,94 @@ impl BoxChars {
 /// - Left-aligns text values
 /// - Headers starting with '-' are right-aligned
 /// - Draws Unicode box characters for pretty printing when `-pp` is enabled
+/// Context for rendering the table.
+struct RenderContext<'a> {
+    widths: &'a [usize],
+    args: &'a AppArgs,
+    chars: BoxChars,
+    col_sep: &'a str,
+    padding: String,
+    draw_borders: bool,
+    draw_cs: bool,
+    draw_ts: bool,
+    draw_fs: bool,
+}
+
+/// Formats table data as an ASCII/Unicode table with borders and alignment.
 fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
-    // Calculate widths
+    let widths = calculate_widths(data, args);
+    let padding = " ".repeat(args.w);
+    let col_sep = &args.colsep;
+    let chars = BoxChars::unicode();
+
+    let draw_borders = args.pp;
+    let draw_ts = args.ts || args.header.is_some();
+    let draw_fs = args.fs;
+    let draw_cs = args.cs || args.pp;
+
+    let ctx = RenderContext {
+        widths: &widths,
+        args,
+        chars,
+        col_sep,
+        padding,
+        draw_borders,
+        draw_cs,
+        draw_ts,
+        draw_fs,
+    };
+
+    // Print Column Numbers
+    if args.num {
+        print_column_numbers(data, &ctx);
+    } else {
+        // No numbers, check if we need top border for header or data
+        if draw_borders {
+            print_separator(&ctx, ctx.chars.tl, ctx.chars.tr, ctx.chars.tm, ctx.chars.h);
+        }
+    }
+
+    // Print Header
+    if !data.headers.is_empty() {
+        print_header(data, &ctx);
+    }
+
+    // Print Rows
+    print_data_rows(data, &ctx);
+
+    // Bottom Border
+    if draw_borders {
+        print_separator(&ctx, ctx.chars.bl, ctx.chars.br, ctx.chars.bm, ctx.chars.h);
+    }
+
+    Ok(())
+}
+
+/// Calculates the width of each column based on data content and headers.
+///
+/// Also handles adjusting widths for the column numbering row if `-num` is specified.
+///
+/// # Arguments
+///
+/// * `data` - The table data containing headers and rows
+/// * `args` - Application arguments
+///
+/// # Returns
+///
+/// A vector of column widths
+fn calculate_widths(data: &TableData, args: &AppArgs) -> Vec<usize> {
     let mut widths = Vec::new();
     let mut num_cols = 0;
 
     if !data.headers.is_empty() {
         num_cols = data.headers.len();
+        // Initial width based on headers
         for h in &data.headers {
             widths.push(visible_width(h));
         }
     }
 
+    // Update widths based on max content length in rows
     for row in &data.rows {
         if row.len() > num_cols {
             num_cols = row.len();
@@ -409,8 +485,8 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
         }
     }
 
-    // Adjust widths for column numbers if -num is set
     if args.num {
+        // Adjust for column numbers if needed
         for i in 0..widths.len() {
             let num_str = if i < data.original_column_indices.len() {
                 (data.original_column_indices[i] + 1).to_string()
@@ -423,198 +499,213 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
             }
         }
     }
+    widths
+}
 
-    // Determine padding
-    let padding = " ".repeat(args.w);
-    let col_sep = &args.colsep; // Used for non-pp mode or internal content separation?
-    // If -pp, we use box chars for separation.
-    // If NOT -pp, we use col_sep.
+/// Prints a horizontal separator line.
+///
+/// Handles different styles for borders (`-pp`) and standard separators.
+///
+/// # Arguments
+///
+/// * `ctx` - Render context
+/// * `left` - Character for the left edge
+/// * `right` - Character for the right edge
+/// * `cross` - Character for column intersections
+/// * `horiz` - Character for the horizontal line
+fn print_separator(ctx: &RenderContext, left: char, right: char, cross: char, horiz: char) {
+    let mut line = String::new();
 
-    let draw_borders = args.pp;
-    let draw_ts = args.ts || args.header.is_some();
-    let draw_fs = args.fs;
-    let draw_cs = args.cs || args.pp;
-
-    let chars = BoxChars::unicode();
-
-    let print_separator = |widths: &[usize], left: char, right: char, cross: char, horiz: char| {
-        let mut line = String::new();
-        if draw_borders {
-            line.push(left);
-        }
-        for (i, w) in widths.iter().enumerate() {
-            if i > 0 {
-                if draw_borders || draw_cs {
-                    line.push(cross);
-                } else {
-                    // If no vertical separator, we still have padding between columns in the data rows.
-                    // We need to extend the horizontal line across this padding to match the total width.
-                    for _ in 0..args.w {
-                        line.push(horiz);
-                    }
+    if ctx.draw_borders {
+        line.push(left);
+    }
+    for (i, w) in ctx.widths.iter().enumerate() {
+        if i > 0 {
+            if ctx.draw_borders || ctx.draw_cs {
+                line.push(cross);
+            } else {
+                // Fill space between columns with horizontal line if no vertical separator
+                for _ in 0..ctx.args.w {
+                    line.push(horiz);
                 }
             }
-            let total_w = w + 2 * args.w;
-            for _ in 0..total_w {
-                line.push(horiz);
-            }
         }
-        if draw_borders {
-            line.push(right);
-        }
-        println!("{}", line);
-    };
-
-    // Print Column Numbers if -num is set
-    if args.num {
-        if draw_borders {
-            // Top border
-            print_separator(&widths, chars.tl, chars.tr, chars.tm, chars.h);
-        }
-
-        let mut line = String::new();
-        if draw_borders {
-            line.push(chars.v);
-        }
-        for (i, w) in widths.iter().enumerate() {
-            if i > 0 {
-                if draw_borders {
-                    line.push(chars.v);
-                } else if draw_cs {
-                    line.push_str(col_sep);
-                } else {
-                    line.push_str(&padding);
-                }
-            }
-            let num_str = if i < data.original_column_indices.len() {
-                (data.original_column_indices[i] + 1).to_string()
-            } else {
-                (i + 1).to_string()
-            };
-            let num_w = visible_width(&num_str);
-            line.push_str(&padding);
-            line.push_str(&num_str);
-            if *w > num_w {
-                line.push_str(&" ".repeat(*w - num_w));
-            }
-            line.push_str(&padding);
-        }
-        if draw_borders {
-            line.push(chars.v);
-        }
-        println!("{}", line);
-
-        // Separator between numbers and header/data
-        if draw_borders || draw_ts {
-            if draw_borders {
-                print_separator(&widths, chars.lm, chars.rm, chars.c, chars.h);
-            } else {
-                print_separator(&widths, chars.h, chars.h, chars.h, chars.h);
-            }
-        }
-    } else {
-        // No numbers, check if we need top border for header
-        if !data.headers.is_empty() && draw_borders {
-            print_separator(&widths, chars.tl, chars.tr, chars.tm, chars.h);
-        } else if data.headers.is_empty() && draw_borders {
-            // No header, just data top border
-            print_separator(&widths, chars.tl, chars.tr, chars.tm, chars.h);
+        let total_w = w + 2 * ctx.args.w;
+        for _ in 0..total_w {
+            line.push(horiz);
         }
     }
+    if ctx.draw_borders {
+        line.push(right);
+    }
+    println!("{}", line);
+}
 
-    // Print Header
-    if !data.headers.is_empty() {
-        let mut line = String::new();
-        if draw_borders {
-            line.push(chars.v);
+/// Prints the row containing column numbers.
+///
+/// Used when the `-num` flag is active. Handles formatting and alignment
+/// of column indices.
+///
+/// # Arguments
+///
+/// * `data` - Table data
+/// * `ctx` - Render context
+fn print_column_numbers(data: &TableData, ctx: &RenderContext) {
+    if ctx.draw_borders {
+        print_separator(ctx, ctx.chars.tl, ctx.chars.tr, ctx.chars.tm, ctx.chars.h);
+    }
+
+    let mut line = String::new();
+    if ctx.draw_borders {
+        line.push(ctx.chars.v);
+    }
+    for (i, w) in ctx.widths.iter().enumerate() {
+        if i > 0 {
+            if ctx.draw_borders {
+                line.push(ctx.chars.v);
+            } else if ctx.draw_cs {
+                line.push_str(ctx.col_sep);
+            } else {
+                line.push_str(&ctx.padding);
+            }
+        }
+        let num_str = if i < data.original_column_indices.len() {
+            (data.original_column_indices[i] + 1).to_string()
+        } else {
+            (i + 1).to_string()
+        };
+        // Calculate width for alignment
+        let num_w = visible_width(&num_str);
+        line.push_str(&ctx.padding);
+        line.push_str(&num_str);
+        if *w > num_w {
+            line.push_str(&" ".repeat(*w - num_w));
+        }
+        line.push_str(&ctx.padding);
+    }
+    if ctx.draw_borders {
+        line.push(ctx.chars.v);
+    }
+    println!("{}", line);
+
+    if ctx.draw_borders || ctx.draw_ts {
+        if ctx.draw_borders {
+            print_separator(ctx, ctx.chars.lm, ctx.chars.rm, ctx.chars.c, ctx.chars.h);
+        } else {
+            print_separator(ctx, ctx.chars.h, ctx.chars.h, ctx.chars.h, ctx.chars.h);
+        }
+    }
+}
+
+/// Prints the header row.
+///
+/// Handles alignment of header text (right-aligned if starting with `-`).
+///
+/// # Arguments
+///
+/// * `data` - Table data
+/// * `ctx` - Render context
+fn print_header(data: &TableData, ctx: &RenderContext) {
+    let mut line = String::new();
+    if ctx.draw_borders {
+        line.push(ctx.chars.v);
+    }
+
+    for (i, h) in data.headers.iter().enumerate() {
+        if i > 0 {
+            if ctx.draw_borders {
+                line.push(ctx.chars.v);
+            } else if ctx.draw_cs {
+                line.push_str(ctx.col_sep);
+            } else {
+                line.push_str(&ctx.padding);
+            }
         }
 
-        for (i, h) in data.headers.iter().enumerate() {
-            if i > 0 {
-                if draw_borders {
-                    line.push(chars.v);
-                } else if draw_cs {
-                    line.push_str(col_sep);
-                } else {
-                    line.push_str(&padding);
-                }
-            } else if !draw_borders {
-                // No leading separator unless borders
-            }
+        // Check for right alignment marker
+        let align_right = h.starts_with('-');
+        let content = if align_right { &h[1..] } else { h };
+        let content_w = visible_width(content);
 
-            let align_right = h.starts_with('-');
-            let content = if align_right { &h[1..] } else { h };
-            let content_w = visible_width(content);
-
-            let w = widths[i];
-            if args.nf {
+        let w = ctx.widths[i];
+        if ctx.args.nf {
+            line.push_str(content);
+        } else {
+            // Apply padding for alignment
+            line.push_str(&ctx.padding);
+            let pad_len = w.saturating_sub(content_w);
+            let pad = " ".repeat(pad_len);
+            if align_right {
+                line.push_str(&pad);
                 line.push_str(content);
             } else {
-                line.push_str(&padding);
-                let pad_len = w.saturating_sub(content_w);
-                let pad = " ".repeat(pad_len);
-                if align_right {
-                    line.push_str(&pad);
-                    line.push_str(content);
-                } else {
-                    line.push_str(content);
-                    line.push_str(&pad);
-                }
-                line.push_str(&padding);
+                line.push_str(content);
+                line.push_str(&pad);
             }
-        }
-        if draw_borders {
-            line.push(chars.v);
-        }
-        println!("{}", line);
-
-        if draw_ts {
-            if draw_borders {
-                print_separator(&widths, chars.lm, chars.rm, chars.c, chars.h);
-            } else {
-                print_separator(&widths, chars.h, chars.h, chars.h, chars.h);
-            }
+            line.push_str(&ctx.padding);
         }
     }
+    if ctx.draw_borders {
+        line.push(ctx.chars.v);
+    }
+    println!("{}", line);
 
-    // Print Rows
+    if ctx.draw_ts {
+        if ctx.draw_borders {
+            print_separator(ctx, ctx.chars.lm, ctx.chars.rm, ctx.chars.c, ctx.chars.h);
+        } else {
+            print_separator(ctx, ctx.chars.h, ctx.chars.h, ctx.chars.h, ctx.chars.h);
+        }
+    }
+}
+
+/// Prints the data rows.
+///
+/// Handles formatting of individual cells, including alignment (numeric vs text)
+/// and padding. Also handles the footer separator if enabled.
+///
+/// # Arguments
+///
+/// * `data` - Table data
+/// * `ctx` - Render context
+fn print_data_rows(data: &TableData, ctx: &RenderContext) {
     for (row_idx, row) in data.rows.iter().enumerate() {
-        // Footer Separator: before the last row
-        if draw_fs && row_idx > 0 && row_idx == data.rows.len() - 1 {
-            if draw_borders {
-                print_separator(&widths, chars.lm, chars.rm, chars.c, chars.h);
+        if ctx.draw_fs && row_idx > 0 && row_idx == data.rows.len() - 1 {
+            if ctx.draw_borders {
+                print_separator(ctx, ctx.chars.lm, ctx.chars.rm, ctx.chars.c, ctx.chars.h);
             } else {
-                print_separator(&widths, chars.h, chars.h, chars.h, chars.h);
+                print_separator(ctx, ctx.chars.h, ctx.chars.h, ctx.chars.h, ctx.chars.h);
             }
         }
 
         let mut line = String::new();
-        if draw_borders {
-            line.push(chars.v);
+        if ctx.draw_borders {
+            line.push(ctx.chars.v);
         }
 
         for (i, val) in row.iter().enumerate() {
             if i > 0 {
-                if draw_borders {
-                    line.push(chars.v);
-                } else if draw_cs {
-                    line.push_str(col_sep);
+                if ctx.draw_borders {
+                    line.push(ctx.chars.v);
+                } else if ctx.draw_cs {
+                    line.push_str(ctx.col_sep);
                 } else {
-                    line.push_str(&padding);
+                    line.push_str(&ctx.padding);
                 }
             }
 
-            let w = if i < widths.len() {
-                widths[i]
+            let w = if i < ctx.widths.len() {
+                ctx.widths[i]
             } else {
                 visible_width(val)
             };
 
-            if args.nf {
+            if ctx.args.nf {
                 line.push_str(val);
             } else {
-                line.push_str(&padding);
-                let is_num = !args.nn && val.parse::<f64>().is_ok();
+                line.push_str(&ctx.padding);
+                // Check if value is numeric for default right-alignment
+                let is_num = !ctx.args.nn && val.parse::<f64>().is_ok();
                 let val_w = visible_width(val);
                 let pad_len = w.saturating_sub(val_w);
                 let pad = " ".repeat(pad_len);
@@ -626,19 +717,12 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
                     line.push_str(val);
                     line.push_str(&pad);
                 }
-                line.push_str(&padding);
+                line.push_str(&ctx.padding);
             }
         }
-        if draw_borders {
-            line.push(chars.v);
+        if ctx.draw_borders {
+            line.push(ctx.chars.v);
         }
         println!("{}", line);
     }
-
-    // Bottom Border
-    if draw_borders {
-        print_separator(&widths, chars.bl, chars.br, chars.bm, chars.h);
-    }
-
-    Ok(())
 }
