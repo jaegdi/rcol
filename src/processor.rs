@@ -14,11 +14,154 @@ pub struct TableData {
     pub original_column_indices: Vec<usize>,
 }
 
+/// Splits a line into fields using a separator regex, while respecting quoted strings.
+///
+/// Content within double quotes ("...") or single quotes ('...') is treated as a single field,
+/// even if it contains the separator character or whitespace.
+///
+/// # Arguments
+///
+/// * `line` - The input line to split
+/// * `sep_regex` - The separator pattern to use between fields
+/// * `is_regex_whitespace` - Whether the separator is a whitespace pattern (for character-by-character parsing)
+///
+/// # Returns
+///
+/// A vector of field strings with quotes preserved as part of the field content
+fn split_with_quotes(line: &str, sep_regex: &Regex, is_regex_whitespace: bool) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current_field = String::new();
+    let mut in_double_quotes = false;
+    let mut in_single_quotes = false;
+    let mut last_match_end = 0;
+    
+    // First pass: find separator positions while respecting quotes
+    let mut separator_positions = Vec::new();
+    let mut pos = 0;
+    
+    for ch in line.chars() {
+        match ch {
+            '"' if !in_single_quotes => {
+                in_double_quotes = !in_double_quotes;
+                current_field.push(ch);
+            }
+            '\'' if !in_double_quotes => {
+                in_single_quotes = !in_single_quotes;
+                current_field.push(ch);
+            }
+            _ if !in_double_quotes && !in_single_quotes => {
+                current_field.push(ch);
+                // Check if we're at a separator (when outside quotes)
+                if is_regex_whitespace && ch.is_whitespace() {
+                    // For whitespace, record position
+                    if !current_field.trim().is_empty() && !current_field.ends_with(ch) {
+                        separator_positions.push(pos);
+                    }
+                }
+            }
+            _ => {
+                current_field.push(ch);
+            }
+        }
+        pos += ch.len_utf8();
+    }
+    
+    // If using whitespace separator, do character-by-character parsing
+    if is_regex_whitespace {
+        let mut current_field = String::new();
+        in_double_quotes = false;
+        in_single_quotes = false;
+        
+        for ch in line.chars() {
+            match ch {
+                '"' if !in_single_quotes => {
+                    in_double_quotes = !in_double_quotes;
+                    current_field.push(ch);
+                }
+                '\'' if !in_double_quotes => {
+                    in_single_quotes = !in_single_quotes;
+                    current_field.push(ch);
+                }
+                c if !in_double_quotes && !in_single_quotes && c.is_whitespace() => {
+                    // Whitespace outside quotes - field separator
+                    if !current_field.is_empty() {
+                        fields.push(current_field.trim().to_string());
+                        current_field = String::new();
+                    }
+                }
+                c => {
+                    current_field.push(c);
+                }
+            }
+        }
+        
+        // Add the last field
+        if !current_field.is_empty() {
+            fields.push(current_field.trim().to_string());
+        }
+        
+        return if fields.is_empty() { vec![] } else { fields };
+    }
+    
+    // For non-whitespace separators, use regex split but still respect quotes
+    // by doing a more sophisticated split
+    current_field = String::new();
+    in_double_quotes = false;
+    in_single_quotes = false;
+    
+    let mut i = 0;
+    let bytes = line.as_bytes();
+    
+    while i < bytes.len() {
+        let ch = bytes[i] as char;
+        
+        // Check for quote
+        if ch == '"' && !in_single_quotes {
+            in_double_quotes = !in_double_quotes;
+            current_field.push(ch);
+            i += 1;
+        } else if ch == '\'' && !in_double_quotes {
+            in_single_quotes = !in_single_quotes;
+            current_field.push(ch);
+            i += 1;
+        } else if !in_double_quotes && !in_single_quotes {
+            // Try to match separator at this position
+            if let Some(cap) = sep_regex.find(&line[i..]) {
+                if cap.start() == 0 {
+                    // Separator found at current position
+                    if !current_field.is_empty() {
+                        fields.push(current_field.trim().to_string());
+                        current_field = String::new();
+                    }
+                    i += cap.end();
+                    continue;
+                }
+            }
+            current_field.push(ch);
+            i += 1;
+        } else {
+            current_field.push(ch);
+            i += 1;
+        }
+    }
+    
+    // Add the last field
+    if !current_field.is_empty() {
+        fields.push(current_field.trim().to_string());
+    }
+    
+    if fields.is_empty() {
+        return vec![];
+    }
+    
+    fields
+}
+
 /// Processes input lines according to application arguments to produce table data.
 ///
 /// Executes the complete data processing pipeline:
 /// 1. Filters lines based on regex pattern (if specified)
-/// 2. Splits lines into columns using the specified separator
+/// 2. Splits lines into columns using the specified separator (respecting quoted strings)
 /// 3. Handles header extraction or application
 /// 4. Selects and reorders columns based on column specifications
 /// 5. Sorts rows by specified column (if requested)
@@ -109,6 +252,10 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
     // -rh = Remove first line (maybe it was a bad header?).
 
     let line_iter = filtered_lines.into_iter();
+    
+    // Determine if we should use character-by-character parsing for whitespace
+    // This is true when -m flag is set OR when the default separator (space) is used
+    let is_regex_whitespace = args.mb || args.sep == " ";
 
     // Handle input lines
     let mut first_line = true;
@@ -119,14 +266,14 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
                 continue; // Remove first line
             }
             if args.header.is_none() && !args.nhl {
-                // Treat first line as header
-                let parts: Vec<String> = sep_regex.split(&line).map(|s| s.to_string()).collect();
+                // Treat first line as header - use quote-aware splitting
+                let parts: Vec<String> = split_with_quotes(&line, &sep_regex, is_regex_whitespace);
                 headers = parts;
                 continue;
             }
         }
 
-        let parts: Vec<String> = sep_regex.split(&line).map(|s| s.to_string()).collect();
+        let parts: Vec<String> = split_with_quotes(&line, &sep_regex, is_regex_whitespace);
         rows.push(parts);
     }
 
@@ -205,7 +352,7 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
 
     // Handle explicit header argument (applied to OUTPUT columns)
     if let Some(h) = &args.header {
-        let mut parts: Vec<String> = sep_regex.split(h).map(|s| s.to_string()).collect();
+        let mut parts: Vec<String> = split_with_quotes(h, &sep_regex, is_regex_whitespace);
         // Adjust length to match output columns
         if parts.len() < col_indices.len() {
             parts.resize(col_indices.len(), "".to_string());

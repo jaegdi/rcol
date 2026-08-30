@@ -1,0 +1,6 @@
+Name Age City
+Alice 30 New\nYork
+Bob 25 Los\nAngeles
+Char\nlie 35 Chi\ncago
+Da\nvid 28 New\nYo\nrk
+Eve 22 LosAngeles

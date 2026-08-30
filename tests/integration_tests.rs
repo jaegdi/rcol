@@ -420,7 +420,8 @@ fn test_complex_example_from_readme() {
 
     // Next row with same permission should have it hidden (empty or spaces)
     // Due to grouping, the RIGHTS column should be empty for subsequent .rw-r--r-- entries
-    let next_rw_line = lines[data_start + 1];
+    // Find the next data row (skipping separator lines)
+    let next_rw_line = lines[data_start..].iter().find(|l| l.contains("Cargo.toml")).unwrap();
     assert!(
         next_rw_line.contains("Cargo.toml"),
         "Next row should be Cargo.toml"

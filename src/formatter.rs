@@ -34,6 +34,22 @@ fn strip_ansi(s: &str) -> String {
     ansi_regex.replace_all(s, "").to_string()
 }
 
+/// Splits cell content by `\n` to support multiline cells.
+///
+/// Returns a vector of lines for a single cell. If no `\n` is present,
+/// returns a single-element vector.
+///
+/// # Arguments
+///
+/// * `cell` - The cell content (may contain `\n` for linebreaks)
+///
+/// # Returns
+///
+/// A vector of lines for this cell
+fn split_cell_lines(cell: &str) -> Vec<String> {
+    cell.split("\\n").map(|s| s.to_string()).collect()
+}
+
 /// Calculates the visible width of a string, accounting for Unicode and ANSI escape codes.
 ///
 /// Strips ANSI escape sequences (CSI and OSC codes) before calculating the display width
@@ -357,6 +373,19 @@ impl BoxChars {
     }
 }
 
+/// Context for rendering the table.
+struct RenderContext<'a> {
+    widths: &'a [usize],
+    args: &'a AppArgs,
+    chars: BoxChars,
+    col_sep: &'a str,
+    padding: String,
+    draw_borders: bool,
+    draw_cs: bool,
+    draw_ts: bool,
+    draw_fs: bool,
+}
+
 /// Formats table data as an ASCII/Unicode table with borders and alignment.
 ///
 /// The primary formatting function that handles:
@@ -382,19 +411,6 @@ impl BoxChars {
 /// - Left-aligns text values
 /// - Headers starting with '-' are right-aligned
 /// - Draws Unicode box characters for pretty printing when `-pp` is enabled
-/// Context for rendering the table.
-struct RenderContext<'a> {
-    widths: &'a [usize],
-    args: &'a AppArgs,
-    chars: BoxChars,
-    col_sep: &'a str,
-    padding: String,
-    draw_borders: bool,
-    draw_cs: bool,
-    draw_ts: bool,
-    draw_fs: bool,
-}
-
 /// Formats table data as an ASCII/Unicode table with borders and alignment.
 fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
     let widths = calculate_widths(data, args);
@@ -447,7 +463,8 @@ fn format_ascii(data: &TableData, args: &AppArgs) -> io::Result<()> {
 
 /// Calculates the width of each column based on data content and headers.
 ///
-/// Also handles adjusting widths for the column numbering row if `-num` is specified.
+/// Considers multiline content (separated by `\n`) when determining width.
+/// The width is the maximum width of any line within a cell.
 ///
 /// # Arguments
 ///
@@ -463,9 +480,11 @@ fn calculate_widths(data: &TableData, args: &AppArgs) -> Vec<usize> {
 
     if !data.headers.is_empty() {
         num_cols = data.headers.len();
-        // Initial width based on headers
+        // Initial width based on headers (headers may also contain \n)
         for h in &data.headers {
-            widths.push(visible_width(h));
+            let lines = split_cell_lines(h);
+            let max_width = lines.iter().map(|l| visible_width(l)).max().unwrap_or(0);
+            widths.push(max_width);
         }
     }
 
@@ -477,9 +496,10 @@ fn calculate_widths(data: &TableData, args: &AppArgs) -> Vec<usize> {
         }
         for (i, val) in row.iter().enumerate() {
             if i < widths.len() {
-                let w = visible_width(val);
-                if w > widths[i] {
-                    widths[i] = w;
+                let lines = split_cell_lines(val);
+                let max_width = lines.iter().map(|l| visible_width(l)).max().unwrap_or(0);
+                if max_width > widths[i] {
+                    widths[i] = max_width;
                 }
             }
         }
@@ -537,6 +557,42 @@ fn print_separator(ctx: &RenderContext, left: char, right: char, cross: char, ho
     }
     if ctx.draw_borders {
         line.push(right);
+    }
+    println!("{}", line);
+}
+
+/// Prints a horizontal separator line with double lines for header separation.
+///
+/// Used specifically for the separator below the header to distinguish it
+/// from data row separators.
+///
+/// # Arguments
+///
+/// * `ctx` - Render context
+fn print_header_separator(ctx: &RenderContext) {
+    let mut line = String::new();
+
+    if ctx.draw_borders {
+       line.push('╠');  // Left junction with double lines
+    }
+    for (i, w) in ctx.widths.iter().enumerate() {
+       if i > 0 {
+           if ctx.draw_borders || ctx.draw_cs {
+               line.push('╬');  // Cross junction with double lines
+           } else {
+               // Fill space between columns with double line if no vertical separator
+               for _ in 0..ctx.args.w {
+                   line.push('═');
+               }
+           }
+       }
+       let total_w = w + 2 * ctx.args.w;
+       for _ in 0..total_w {
+           line.push('═');  // Double horizontal line
+       }
+    }
+    if ctx.draw_borders {
+       line.push('╣');  // Right junction with double lines
     }
     println!("{}", line);
 }
@@ -599,60 +655,84 @@ fn print_column_numbers(data: &TableData, ctx: &RenderContext) {
 
 /// Prints the header row.
 ///
-/// Handles alignment of header text (right-aligned if starting with `-`).
+/// Handles alignment of header text (right-aligned if starting with `-`)
+/// and supports multiline headers (separated by `\n`).
 ///
 /// # Arguments
 ///
 /// * `data` - Table data
 /// * `ctx` - Render context
 fn print_header(data: &TableData, ctx: &RenderContext) {
-    let mut line = String::new();
-    if ctx.draw_borders {
-        line.push(ctx.chars.v);
+    // First, collect all header lines and determine header height
+    let mut header_lines_vec = Vec::new();
+    let mut max_header_height = 0;
+    
+    for h in &data.headers {
+        let lines = split_cell_lines(h);
+        max_header_height = max_header_height.max(lines.len());
+        header_lines_vec.push(lines);
     }
+    
+    // Print each line of the header with proper alignment
+    for line_idx in 0..max_header_height {
+        let mut line = String::new();
+        if ctx.draw_borders {
+            line.push(ctx.chars.v);
+        }
 
-    for (i, h) in data.headers.iter().enumerate() {
-        if i > 0 {
-            if ctx.draw_borders {
-                line.push(ctx.chars.v);
-            } else if ctx.draw_cs {
-                line.push_str(ctx.col_sep);
+        for (i, lines) in header_lines_vec.iter().enumerate() {
+            if i > 0 {
+                if ctx.draw_borders {
+                    line.push(ctx.chars.v);
+                } else if ctx.draw_cs {
+                    line.push_str(ctx.col_sep);
+                } else {
+                    line.push_str(&ctx.padding);
+                }
+            }
+
+            // Get the content for this line (or empty if beyond this cell's lines)
+            let content = lines.get(line_idx).map(|s| s.as_str()).unwrap_or("");
+            
+            // Check for right alignment marker (only on first line of cell)
+            let (align_right, final_content) = if line_idx == 0 && content.starts_with('-') && !content.is_empty() {
+                (true, &content[1..])
+            } else if line_idx == 0 {
+                let header_text = &data.headers[i];
+                (header_text.starts_with('-'), content)
             } else {
+                (false, content)
+            };
+            
+            let content_w = visible_width(final_content);
+            let w = ctx.widths[i];
+            
+            if ctx.args.nf {
+                line.push_str(final_content);
+            } else {
+                // Apply padding for alignment
+                line.push_str(&ctx.padding);
+                let pad_len = w.saturating_sub(content_w);
+                let pad = " ".repeat(pad_len);
+                if align_right {
+                    line.push_str(&pad);
+                    line.push_str(final_content);
+                } else {
+                    line.push_str(final_content);
+                    line.push_str(&pad);
+                }
                 line.push_str(&ctx.padding);
             }
         }
-
-        // Check for right alignment marker
-        let align_right = h.starts_with('-');
-        let content = if align_right { &h[1..] } else { h };
-        let content_w = visible_width(content);
-
-        let w = ctx.widths[i];
-        if ctx.args.nf {
-            line.push_str(content);
-        } else {
-            // Apply padding for alignment
-            line.push_str(&ctx.padding);
-            let pad_len = w.saturating_sub(content_w);
-            let pad = " ".repeat(pad_len);
-            if align_right {
-                line.push_str(&pad);
-                line.push_str(content);
-            } else {
-                line.push_str(content);
-                line.push_str(&pad);
-            }
-            line.push_str(&ctx.padding);
-        }
-    }
-    if ctx.draw_borders {
-        line.push(ctx.chars.v);
-    }
-    println!("{}", line);
-
-    if ctx.draw_ts {
         if ctx.draw_borders {
-            print_separator(ctx, ctx.chars.lm, ctx.chars.rm, ctx.chars.c, ctx.chars.h);
+            line.push(ctx.chars.v);
+        }
+        println!("{}", line);
+    }
+
+    if ctx.draw_borders || ctx.draw_ts {
+        if ctx.draw_borders {
+            print_header_separator(ctx);
         } else {
             print_separator(ctx, ctx.chars.h, ctx.chars.h, ctx.chars.h, ctx.chars.h);
         }
@@ -661,8 +741,9 @@ fn print_header(data: &TableData, ctx: &RenderContext) {
 
 /// Prints the data rows.
 ///
-/// Handles formatting of individual cells, including alignment (numeric vs text)
-/// and padding. Also handles the footer separator if enabled.
+/// Handles formatting of individual cells with multiline support.
+/// Each row's height is synchronized based on the cell with the most lines.
+/// Implements alignment (numeric vs text) and padding for all lines.
 ///
 /// # Arguments
 ///
@@ -678,51 +759,82 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
             }
         }
 
-        let mut line = String::new();
-        if ctx.draw_borders {
-            line.push(ctx.chars.v);
+        // First, split all cells into lines and determine max height
+        let mut cell_lines_vec = Vec::new();
+        let mut max_row_height = 0;
+        
+        for val in row.iter() {
+            let lines = split_cell_lines(val);
+            max_row_height = max_row_height.max(lines.len());
+            cell_lines_vec.push(lines);
         }
 
-        for (i, val) in row.iter().enumerate() {
-            if i > 0 {
-                if ctx.draw_borders {
-                    line.push(ctx.chars.v);
-                } else if ctx.draw_cs {
-                    line.push_str(ctx.col_sep);
+        // Print each line of the row with synchronized height
+        for line_idx in 0..max_row_height {
+            let mut line = String::new();
+            if ctx.draw_borders {
+                line.push(ctx.chars.v);
+            }
+
+            for (i, cell_lines) in cell_lines_vec.iter().enumerate() {
+                if i > 0 {
+                    if ctx.draw_borders {
+                        line.push(ctx.chars.v);
+                    } else if ctx.draw_cs {
+                        line.push_str(ctx.col_sep);
+                    } else {
+                        line.push_str(&ctx.padding);
+                    }
+                }
+
+                // Get the content for this line (or empty if beyond this cell's lines)
+                let content = cell_lines.get(line_idx).map(|s| s.as_str()).unwrap_or("");
+
+                let w = if i < ctx.widths.len() {
+                    ctx.widths[i]
                 } else {
+                    visible_width(content)
+                };
+
+                if ctx.args.nf {
+                    line.push_str(content);
+                } else {
+                    line.push_str(&ctx.padding);
+                    
+                    // Check if value is numeric for default right-alignment
+                    // Only check first line of cell for numeric property
+                    let is_num = if line_idx == 0 {
+                        !ctx.args.nn && row[i].parse::<f64>().is_ok()
+                    } else {
+                        false
+                    };
+                    
+                    let val_w = visible_width(content);
+                    let pad_len = w.saturating_sub(val_w);
+                    let pad = " ".repeat(pad_len);
+
+                    if is_num {
+                        line.push_str(&pad);
+                        line.push_str(content);
+                    } else {
+                        line.push_str(content);
+                        line.push_str(&pad);
+                    }
                     line.push_str(&ctx.padding);
                 }
             }
-
-            let w = if i < ctx.widths.len() {
-                ctx.widths[i]
-            } else {
-                visible_width(val)
-            };
-
-            if ctx.args.nf {
-                line.push_str(val);
-            } else {
-                line.push_str(&ctx.padding);
-                // Check if value is numeric for default right-alignment
-                let is_num = !ctx.args.nn && val.parse::<f64>().is_ok();
-                let val_w = visible_width(val);
-                let pad_len = w.saturating_sub(val_w);
-                let pad = " ".repeat(pad_len);
-
-                if is_num {
-                    line.push_str(&pad);
-                    line.push_str(val);
-                } else {
-                    line.push_str(val);
-                    line.push_str(&pad);
-                }
-                line.push_str(&ctx.padding);
+            if ctx.draw_borders {
+                line.push(ctx.chars.v);
+            }
+            println!("{}", line);
+        }
+        
+        // Print horizontal separator between rows when borders are enabled
+        if ctx.draw_borders {
+            // Print separator after each data row (except the last)
+            if row_idx < data.rows.len() - 1 {
+                print_separator(ctx, ctx.chars.lm, ctx.chars.rm, ctx.chars.c, ctx.chars.h);
             }
         }
-        if ctx.draw_borders {
-            line.push(ctx.chars.v);
-        }
-        println!("{}", line);
     }
 }

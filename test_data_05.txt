@@ -1,0 +1,5 @@
+Watchdog openshift-monitoring --- none 2026-08-21T19:55:49.0340655Z "An alert that should always be firing to certify that Alertmanager is working properly."
+ClusterLogForwarder\nDeprecations openshift-logging collector info 2026-08-21T19:56:16.261885813Z "The Cluster Logging Operator version 6.2.11 includes deprecations to some features of ClusterLogForwarder which\nwill be removed in a future release. Please see the release notes for details:\nhttps://docs.redhat.com/en/documentation/red_hat_openshift_logging/6.2/html/release_notes"
+AlertmanagerReceivers\nNotConfigured openshift-monitoring --- warning 2026-08-21T19:56:18.983611288Z "Receivers (notification integrations) are not configured on Alertmanager"
+Cluster\nNot\nUpgradeable openshift-cluster-version --- info 2026-08-22T10:17:38.98316298Z "One or more cluster operators have been blocking minor version cluster upgrades for at least an hour."
+InsightsDisabled openshift-insights --- info 2026-08-22T10:17:42.814366387Z "Insights operator is disabled."
