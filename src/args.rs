@@ -1,10 +1,14 @@
-use clap::Parser;
+use clap::{ArgGroup, Parser};
 
 /// rcol - Rust Column Formatter
 ///
 /// Format and shape unformatted ASCII text into columns.
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
+#[command(group(ArgGroup::new("output_format")
+    .args(["csv", "json", "yaml", "html"])
+    .multiple(false)
+))]
 pub struct AppArgs {
     /// Read input from FILENAME
     #[arg(short = 'f', long)]
@@ -83,19 +87,19 @@ pub struct AppArgs {
     pub num: bool,
 
     /// Output as CSV
-    #[arg(long)]
+    #[arg(long, group = "output_format")]
     pub csv: bool,
 
     /// Output as JSON
-    #[arg(long)]
+    #[arg(long, group = "output_format")]
     pub json: bool,
 
     /// Output as YAML
-    #[arg(long)]
+    #[arg(long, group = "output_format")]
     pub yaml: bool,
 
     /// Output as HTML
-    #[arg(long)]
+    #[arg(long, group = "output_format")]
     pub html: bool,
 
     /// JSON Title Column: Use the first column as the key for JSON objects
@@ -117,34 +121,6 @@ pub struct AppArgs {
 
 impl Default for AppArgs {
     fn default() -> Self {
-        Self {
-            file: None,
-            header: None,
-            sep: " ".to_string(),
-            mb: false,
-            w: 1,
-            colsep: "│".to_string(),
-            filter: None,
-            sortcol: None,
-            gcol: None,
-            gcolval: false,
-            nf: false,
-            nn: false,
-            nhl: false,
-            ts: false,
-            fs: false,
-            cs: false,
-            pp: false,
-            rh: false,
-            num: false,
-            csv: false,
-            json: false,
-            yaml: false,
-            html: false,
-            jtc: false,
-            verify: false,
-            columns: Vec::new(),
-            manpage: false,
-        }
+        Self::parse_from(["rcol"])
     }
 }

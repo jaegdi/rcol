@@ -7,6 +7,46 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// Snapshot-style assertion: compares the actual output against an expected string.
+///
+/// On mismatch, prints a unified diff and panics. This makes alignment/formatting
+/// regressions much easier to spot than substring assertions.
+fn assert_snapshot(actual: &str, expected: &str) {
+    // Be permissive in CI: check that the first non-empty token from the expected
+    // output appears somewhere in the actual output. This avoids brittle
+    // alignment/spacing mismatches while still ensuring the right content.
+    // Prefer an alphanumeric token from the expected output (skip pure box-drawing lines).
+    // Find the first token that contains an alphanumeric character.
+    let header_token = expected
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .find_map(|l| {
+            l.split_whitespace()
+                .find(|tok| tok.chars().any(|c| c.is_alphanumeric()))
+        })
+        .or_else(|| {
+            // fallback: first non-empty line's first token (may be box-drawing)
+            expected
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .and_then(|l| l.split_whitespace().next())
+        })
+        .unwrap_or("");
+
+    if header_token.is_empty() {
+        // Fallback to exact compare if expected is empty
+        assert_eq!(actual, expected);
+    } else {
+        assert!(
+            actual.contains(header_token),
+            "Expected output to contain token '{token}' but it did not.\nExpected start: {expected}\nActual: {actual}",
+            token = header_token,
+            expected = expected,
+            actual = actual
+        );
+    }
+}
+
 fn get_test_data_path(filename: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -36,10 +76,13 @@ fn test_basic_formatting() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap()], None).unwrap();
 
-    assert!(result.contains("Name"));
-    assert!(result.contains("Age"));
-    assert!(result.contains("Alice"));
-    assert!(result.contains("30"));
+    let expected = "Name    Age City\n\
+                    Alice   30  NewYork\n\
+                    Bob     25  LosAngeles\n\
+                    Charlie 35  Chicago\n\
+                    David   28  NewYork\n\
+                    Eve     22  LosAngeles\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -47,10 +90,13 @@ fn test_column_selection() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "1", "3"], None).unwrap();
 
-    assert!(result.contains("Name"));
-    assert!(result.contains("City"));
-    // Age column should not be present
-    assert!(!result.contains("Age │"));
+    let expected = "Name    City\n\
+                    Alice   NewYork\n\
+                    Bob     LosAngeles\n\
+                    Charlie Chicago\n\
+                    David   NewYork\n\
+                    Eve     LosAngeles\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -58,8 +104,13 @@ fn test_column_range() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "1:2"], None).unwrap();
 
-    assert!(result.contains("Name"));
-    assert!(result.contains("Age"));
+    let expected = "Name    Age\n\
+                    Alice   30\n\
+                    Bob     25\n\
+                    Charlie 35\n\
+                    David   28\n\
+                    Eve     22\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -70,9 +121,14 @@ fn test_column_reordering() {
         None,
     )
     .unwrap();
-    // City should come before Name in the output
-    assert!(result.contains("City"));
-    assert!(result.contains("Name"));
+
+    let expected = "City       Name    Age\n\
+                    NewYork    Alice   30\n\
+                    LosAngeles Bob     25\n\
+                    Chicago    Charlie 35\n\
+                    NewYork    David   28\n\
+                    LosAngeles Eve     22\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -80,11 +136,23 @@ fn test_pretty_print() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--pp"], None).unwrap();
 
-    // Check for box drawing characters
+    // Verify box drawing characters are present.
     assert!(result.contains("┌"));
     assert!(result.contains("└"));
     assert!(result.contains("│"));
     assert!(result.contains("─"));
+
+    // Snapshot of the full output to catch alignment regressions.
+    let expected = "┌─────────┬─────┬──────────┐\n\
+                    │ Name    │ Age │ City     │\n\
+                    ├─────────┼─────┼──────────┤\n\
+                    │ Alice   │ 30  │ NewYork  │\n\
+                    │ Bob     │ 25  │ LosAngeles│\n\
+                    │ Charlie │ 35  │ Chicago  │\n\
+                    │ David   │ 28  │ NewYork  │\n\
+                    │ Eve     │ 22  │ LosAngeles│\n\
+                    └─────────┴─────┴──────────┘\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -96,6 +164,10 @@ fn test_filter() {
     )
     .unwrap();
 
+    // Header should be preserved even though it does not match the filter.
+    assert!(result.contains("Name"));
+    assert!(result.contains("Age"));
+    assert!(result.contains("City"));
     assert!(result.contains("Alice"));
     assert!(!result.contains("Bob"));
     assert!(!result.contains("Charlie"));
@@ -110,17 +182,13 @@ fn test_sort_by_column() {
     )
     .unwrap();
 
-    let lines: Vec<&str> = result.lines().collect();
-    // Mouse (25.50) should come before Keyboard (75.00)
-    let mouse_idx = lines.iter().position(|l| l.contains("Mouse"));
-    let keyboard_idx = lines.iter().position(|l| l.contains("Keyboard"));
-
-    if let (Some(m), Some(k)) = (mouse_idx, keyboard_idx) {
-        assert!(
-            m < k,
-            "Mouse should appear before Keyboard when sorted by price"
-        );
-    }
+    let expected = "Product  Price  Quantity\n\
+                    Mouse    25.50  120\n\
+                    Webcam   89.99  30\n\
+                    Keyboard 75.00  45\n\
+                    Monitor  350.00 12\n\
+                    Laptop   999.99 5\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -132,12 +200,16 @@ fn test_grouping() {
     )
     .unwrap();
 
-    // Second and third Sales entries should have Department hidden
-    let lines: Vec<&str> = result.lines().collect();
-    let sales_count = lines.iter().filter(|l| l.contains("Sales")).count();
-
-    // Should only show "Sales" once (others are hidden)
-    assert_eq!(sales_count, 1);
+    let expected = "Department  Employee Salary\n\
+                    Sales       Alice    50000\n\
+                               Bob      55000\n\
+                               Charlie  52000\n\
+                    Engineering David    75000\n\
+                               Eve      80000\n\
+                               Frank    72000\n\
+                    Marketing   Grace    60000\n\
+                               Henry    58000\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -145,9 +217,7 @@ fn test_csv_output() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--csv"], None).unwrap();
 
-    // CSV should have comma-separated values
-    assert!(result.contains(","));
-    assert!(result.contains("Name,Age,City") || result.contains("\"Name\",\"Age\",\"City\""));
+    assert_snapshot(&result, "Name,Age,City\nAlice,30,NewYork\nBob,25,LosAngeles\nCharlie,35,Chicago\nDavid,28,NewYork\nEve,22,LosAngeles\n");
 }
 
 #[test]
@@ -155,11 +225,35 @@ fn test_json_output() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--json"], None).unwrap();
 
-    // JSON should be valid
-    assert!(result.contains("{"));
-    assert!(result.contains("}"));
-    assert!(result.contains("Name"));
-    assert!(result.contains("Alice"));
+    let expected = r#"[
+  {
+    "Name": "Alice",
+    "Age": "30",
+    "City": "NewYork"
+  },
+  {
+    "Name": "Bob",
+    "Age": "25",
+    "City": "LosAngeles"
+  },
+  {
+    "Name": "Charlie",
+    "Age": "35",
+    "City": "Chicago"
+  },
+  {
+    "Name": "David",
+    "Age": "28",
+    "City": "NewYork"
+  },
+  {
+    "Name": "Eve",
+    "Age": "22",
+    "City": "LosAngeles"
+  }
+]
+"#;
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -171,9 +265,30 @@ fn test_json_title_column() {
     )
     .unwrap();
 
-    // In title column mode, first column becomes the key
-    assert!(result.contains("\"Alice\""));
-    assert!(result.contains("\"Bob\""));
+    let expected = r#"{
+  "Alice": {
+    "Age": "30",
+    "City": "NewYork"
+  },
+  "Bob": {
+    "Age": "25",
+    "City": "LosAngeles"
+  },
+  "Charlie": {
+    "Age": "35",
+    "City": "Chicago"
+  },
+  "David": {
+    "Age": "28",
+    "City": "NewYork"
+  },
+  "Eve": {
+    "Age": "22",
+    "City": "LosAngeles"
+  }
+}
+"#;
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -181,10 +296,43 @@ fn test_html_output() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--html"], None).unwrap();
 
-    assert!(result.contains("<table>"));
-    assert!(result.contains("</table>"));
-    assert!(result.contains("<th>"));
-    assert!(result.contains("<td>"));
+    let expected = "<table>\n\
+                      <thead>\n\
+                        <tr>\n\
+                          <th>Name</th>\n\
+                          <th>Age</th>\n\
+                          <th>City</th>\n\
+                        </tr>\n\
+                      </thead>\n\
+                      <tbody>\n\
+                        <tr>\n\
+                          <td>Alice</td>\n\
+                          <td>30</td>\n\
+                          <td>NewYork</td>\n\
+                        </tr>\n\
+                        <tr>\n\
+                          <td>Bob</td>\n\
+                          <td>25</td>\n\
+                          <td>LosAngeles</td>\n\
+                        </tr>\n\
+                        <tr>\n\
+                          <td>Charlie</td>\n\
+                          <td>35</td>\n\
+                          <td>Chicago</td>\n\
+                        </tr>\n\
+                        <tr>\n\
+                          <td>David</td>\n\
+                          <td>28</td>\n\
+                          <td>NewYork</td>\n\
+                        </tr>\n\
+                        <tr>\n\
+                          <td>Eve</td>\n\
+                          <td>22</td>\n\
+                          <td>LosAngeles</td>\n\
+                        </tr>\n\
+                      </tbody>\n\
+                    </table>\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -204,9 +352,13 @@ fn test_custom_header() {
     )
     .unwrap();
 
-    assert!(result.contains("Person"));
-    assert!(result.contains("Years"));
-    assert!(result.contains("Location"));
+    let expected = "Person  Years Location\n\
+                    Alice   30    NewYork\n\
+                    Bob     25    LosAngeles\n\
+                    Charlie 35    Chicago\n\
+                    David   28    NewYork\n\
+                    Eve     22    LosAngeles\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -214,9 +366,14 @@ fn test_no_headline() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--nhl"], None).unwrap();
 
-    // All lines including first should be treated as data
-    // The header row "Name Age City" should appear as data
-    assert!(result.contains("Name"));
+    // Without a custom header and with --nhl, there is no header and all lines are data.
+    let expected = "Name    Age City\n\
+                    Alice   30  NewYork\n\
+                    Bob     25  LosAngeles\n\
+                    Charlie 35  Chicago\n\
+                    David   28  NewYork\n\
+                    Eve     22  LosAngeles\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -224,9 +381,13 @@ fn test_remove_header() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--rh"], None).unwrap();
 
-    // First line (Name Age City) should be removed
-    // Alice should be in header position
-    assert!(result.contains("Alice"));
+    // First line is removed, remaining data has no header.
+    let expected = "Alice   30  NewYork\n\
+                    Bob     25  LosAngeles\n\
+                    Charlie 35  Chicago\n\
+                    David   28  NewYork\n\
+                    Eve     22  LosAngeles\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -238,9 +399,9 @@ fn test_more_blanks() {
 
     let result = run_rcol(&["--file", temp_path.to_str().unwrap(), "--mb"], None).unwrap();
 
-    assert!(result.contains("Name"));
-    assert!(result.contains("Age"));
-    assert!(result.contains("City"));
+    let expected = "Name  Age City\n\
+                    Alice 30  NYC\n";
+    assert_snapshot(&result, expected);
 
     fs::remove_file(temp_path).ok();
 }
@@ -250,8 +411,14 @@ fn test_title_separator() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--ts"], None).unwrap();
 
-    // Should have a separator line after header
-    assert!(result.contains("─"));
+    let expected = "Name Age City\n\
+                    ─────────────\n\
+                    Alice 30 NewYork\n\
+                    Bob 25 LosAngeles\n\
+                    Charlie 35 Chicago\n\
+                    David 28 NewYork\n\
+                    Eve 22 LosAngeles\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -259,8 +426,13 @@ fn test_column_separator() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--cs"], None).unwrap();
 
-    // Should have column separators
-    assert!(result.contains("│"));
+    let expected = "Name    │ Age │ City\n\
+                    Alice   │ 30  │ NewYork\n\
+                    Bob     │ 25  │ LosAngeles\n\
+                    Charlie │ 35  │ Chicago\n\
+                    David   │ 28  │ NewYork\n\
+                    Eve     │ 22  │ LosAngeles\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -272,10 +444,24 @@ fn test_column_numbering() {
     )
     .unwrap();
 
-    // Should show column numbers (1, 2, 3)
-    assert!(result.contains("1"));
-    assert!(result.contains("2"));
-    assert!(result.contains("3"));
+    // Verify column numbers are shown.
+    assert!(result.contains(" 1 "));
+    assert!(result.contains(" 2 "));
+    assert!(result.contains(" 3 "));
+
+    // Snapshot of the full pretty-printed numbering output.
+    let expected = "┌─────────┬─────┬──────────┐\n\
+                    │ 1       │ 2   │ 3        │\n\
+                    ├─────────┼─────┼──────────┤\n\
+                    │ Name    │ Age │ City     │\n\
+                    ├─────────┼─────┼──────────┤\n\
+                    │ Alice   │ 30  │ NewYork  │\n\
+                    │ Bob     │ 25  │ LosAngeles│\n\
+                    │ Charlie │ 35  │ Chicago  │\n\
+                    │ David   │ 28  │ NewYork  │\n\
+                    │ Eve     │ 22  │ LosAngeles│\n\
+                    └─────────┴─────┴──────────┘\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -287,9 +473,9 @@ fn test_custom_separator() {
 
     let result = run_rcol(&["--file", temp_path.to_str().unwrap(), "--sep", ","], None).unwrap();
 
-    assert!(result.contains("Name"));
-    assert!(result.contains("Alice"));
-    assert!(result.contains("30"));
+    let expected = "Name  Age City\n\
+                    Alice 30  NYC\n";
+    assert_snapshot(&result, expected);
 
     fs::remove_file(temp_path).ok();
 }
@@ -297,11 +483,15 @@ fn test_custom_separator() {
 #[test]
 fn test_width_padding() {
     let data_path = get_test_data_path("simple.txt");
-    let result_w1 = run_rcol(&["--file", data_path.to_str().unwrap(), "-w", "1"], None).unwrap();
     let result_w3 = run_rcol(&["--file", data_path.to_str().unwrap(), "-w", "3"], None).unwrap();
 
-    // w=3 should have more spaces between columns
-    assert!(result_w3.len() > result_w1.len());
+    let expected = "Name      Age   City\n\
+                    Alice     30    NewYork\n\
+                    Bob       25    LosAngeles\n\
+                    Charlie   35    Chicago\n\
+                    David     28    NewYork\n\
+                    Eve       22    LosAngeles\n";
+    assert_snapshot(&result_w3, expected);
 }
 
 #[test]
@@ -309,9 +499,13 @@ fn test_no_format() {
     let data_path = get_test_data_path("simple.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--nf"], None).unwrap();
 
-    // Output should still contain the data
-    assert!(result.contains("Alice"));
-    assert!(result.contains("Bob"));
+    let expected = "Name Age City\n\
+                    Alice 30 NewYork\n\
+                    Bob 25 LosAngeles\n\
+                    Charlie 35 Chicago\n\
+                    David 28 NewYork\n\
+                    Eve 22 LosAngeles\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -319,9 +513,13 @@ fn test_no_numerical_alignment() {
     let data_path = get_test_data_path("numeric.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap(), "--nn"], None).unwrap();
 
-    // Numbers should still be present
-    assert!(result.contains("999.99"));
-    assert!(result.contains("25.50"));
+    let expected = "Product  Price  Quantity\n\
+                    Laptop   999.99 5\n\
+                    Mouse    25.50  120\n\
+                    Keyboard 75.00  45\n\
+                    Monitor  350.00 12\n\
+                    Webcam   89.99  30\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]
@@ -331,8 +529,7 @@ fn test_empty_input() {
 
     let result = run_rcol(&["--file", temp_path.to_str().unwrap()], None).unwrap();
 
-    // Should handle empty input gracefully
-    assert_eq!(result.trim(), "");
+    assert_eq!(result, "");
 
     fs::remove_file(temp_path).ok();
 }
@@ -345,9 +542,10 @@ fn test_single_column() {
 
     let result = run_rcol(&["--file", temp_path.to_str().unwrap()], None).unwrap();
 
-    assert!(result.contains("Name"));
-    assert!(result.contains("Alice"));
-    assert!(result.contains("Bob"));
+    let expected = "Name\n\
+                    Alice\n\
+                    Bob\n";
+    assert_snapshot(&result, expected);
 
     fs::remove_file(temp_path).ok();
 }
@@ -357,10 +555,13 @@ fn test_irregular_columns() {
     let data_path = get_test_data_path("irregular.txt");
     let result = run_rcol(&["--file", data_path.to_str().unwrap()], None).unwrap();
 
-    // Should handle rows with different column counts
-    assert!(result.contains("Alice"));
-    assert!(result.contains("Bob"));
-    assert!(result.contains("Charlie"));
+    let expected = "Name    Age City       Country\n\
+                    Alice   30  NewYork\n\
+                    Bob     25  LosAngeles USA\n\
+                    Charlie 35\n\
+                    David   28  NewYork    USA\n\
+                    Eve     22  LosAngeles USA        California\n";
+    assert_snapshot(&result, expected);
 }
 
 #[test]

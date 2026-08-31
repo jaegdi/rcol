@@ -576,11 +576,14 @@ fn print_column_numbers(data: &TableData, ctx: &RenderContext) {
         };
         // Calculate width for alignment
         let num_w = visible_width(&num_str);
-        line.push_str(&ctx.padding);
+        if ctx.draw_borders || i > 0 {
+            line.push_str(&ctx.padding);
+        }
         line.push_str(&num_str);
         if *w > num_w {
             line.push_str(&" ".repeat(*w - num_w));
         }
+        // trailing padding (keep for spacing)
         line.push_str(&ctx.padding);
     }
     if ctx.draw_borders {
@@ -631,8 +634,10 @@ fn print_header(data: &TableData, ctx: &RenderContext) {
         if ctx.args.nf {
             line.push_str(content);
         } else {
-            // Apply padding for alignment
-            line.push_str(&ctx.padding);
+            // Apply padding for alignment (no leading padding for first column when no borders)
+            if ctx.draw_borders || i > 0 {
+                line.push_str(&ctx.padding);
+            }
             let pad_len = w.saturating_sub(content_w);
             let pad = " ".repeat(pad_len);
             if align_right {
@@ -642,6 +647,7 @@ fn print_header(data: &TableData, ctx: &RenderContext) {
                 line.push_str(content);
                 line.push_str(&pad);
             }
+            // trailing padding
             line.push_str(&ctx.padding);
         }
     }
@@ -703,7 +709,10 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
             if ctx.args.nf {
                 line.push_str(val);
             } else {
-                line.push_str(&ctx.padding);
+                // leading padding only when borders are drawn or it's not the first column
+                if ctx.draw_borders || i > 0 {
+                    line.push_str(&ctx.padding);
+                }
                 // Check if value is numeric for default right-alignment
                 let is_num = !ctx.args.nn && val.parse::<f64>().is_ok();
                 let val_w = visible_width(val);
@@ -717,6 +726,7 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
                     line.push_str(val);
                     line.push_str(&pad);
                 }
+                // trailing padding
                 line.push_str(&ctx.padding);
             }
         }
