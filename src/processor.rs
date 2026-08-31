@@ -30,43 +30,8 @@ fn split_with_quotes(line: &str, sep_regex: &Regex, is_regex_whitespace: bool) -
     let mut in_double_quotes = false;
     let mut in_single_quotes = false;
 
-    // First pass: find separator positions while respecting quotes
-    let mut separator_positions = Vec::new();
-    let mut pos = 0;
-
-    for ch in line.chars() {
-        match ch {
-            '"' if !in_single_quotes => {
-                in_double_quotes = !in_double_quotes;
-                current_field.push(ch);
-            }
-            '\'' if !in_double_quotes => {
-                in_single_quotes = !in_single_quotes;
-                current_field.push(ch);
-            }
-            _ if !in_double_quotes && !in_single_quotes => {
-                current_field.push(ch);
-                // Check if we're at a separator (when outside quotes)
-                if is_regex_whitespace && ch.is_whitespace() {
-                    // For whitespace, record position
-                    if !current_field.trim().is_empty() && !current_field.ends_with(ch) {
-                        separator_positions.push(pos);
-                    }
-                }
-            }
-            _ => {
-                current_field.push(ch);
-            }
-        }
-        pos += ch.len_utf8();
-    }
-
     // If using whitespace separator, do character-by-character parsing
     if is_regex_whitespace {
-        let mut current_field = String::new();
-        in_double_quotes = false;
-        in_single_quotes = false;
-
         for ch in line.chars() {
             match ch {
                 '"' if !in_single_quotes => {
@@ -100,25 +65,21 @@ fn split_with_quotes(line: &str, sep_regex: &Regex, is_regex_whitespace: bool) -
 
     // For non-whitespace separators, use regex split but still respect quotes
     // by doing a more sophisticated split
-    current_field = String::new();
-    in_double_quotes = false;
-    in_single_quotes = false;
-
     let mut i = 0;
-    let bytes = line.as_bytes();
 
-    while i < bytes.len() {
-        let ch = bytes[i] as char;
+    while i < line.len() {
+        let ch = line[i..].chars().next().unwrap();
+        let ch_len = ch.len_utf8();
 
         // Check for quote
         if ch == '"' && !in_single_quotes {
             in_double_quotes = !in_double_quotes;
             current_field.push(ch);
-            i += 1;
+            i += ch_len;
         } else if ch == '\'' && !in_double_quotes {
             in_single_quotes = !in_single_quotes;
             current_field.push(ch);
-            i += 1;
+            i += ch_len;
         } else if !in_double_quotes && !in_single_quotes {
             // Try to match separator at this position
             if let Some(cap) = sep_regex.find(&line[i..]) {
@@ -133,10 +94,10 @@ fn split_with_quotes(line: &str, sep_regex: &Regex, is_regex_whitespace: bool) -
                 }
             }
             current_field.push(ch);
-            i += 1;
+            i += ch_len;
         } else {
             current_field.push(ch);
-            i += 1;
+            i += ch_len;
         }
     }
 
@@ -177,7 +138,7 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
 
     // 4. Apply explicit custom header (after selection so it matches output columns).
     if let Some(h) = &args.header {
-        headers = apply_custom_header(h, &sep_regex, col_indices.len());
+        headers = apply_custom_header(h, &sep_regex, col_indices.len(), args.mb);
     }
 
     // 5. Sorting.
@@ -238,12 +199,12 @@ fn extract_header(
     }
 
     // Default: first line is the header.
-    Ok((split_header(&first, sep_regex), iter.collect()))
+    Ok((split_header(&first, sep_regex, args.mb), iter.collect()))
 }
 
 /// Splits a header string into individual column names.
-fn split_header(header: &str, sep_regex: &Regex) -> Vec<String> {
-    sep_regex.split(header).map(|s| s.to_string()).collect()
+fn split_header(header: &str, sep_regex: &Regex, is_regex_whitespace: bool) -> Vec<String> {
+    split_with_quotes(header, sep_regex, is_regex_whitespace)
 }
 
 /// Splits data lines into columns and applies the optional filter regex.
@@ -265,7 +226,7 @@ fn split_and_filter(
                 continue;
             }
         }
-        rows.push(sep_regex.split(&line).map(|s| s.to_string()).collect());
+        rows.push(split_with_quotes(&line, sep_regex, args.mb));
     }
     Ok(rows)
 }
@@ -374,8 +335,13 @@ fn select_rows(rows: Vec<Vec<String>>, col_indices: &[usize]) -> Vec<Vec<String>
 }
 
 /// Applies a user-provided custom header, padded/truncated to match output columns.
-fn apply_custom_header(header: &str, sep_regex: &Regex, col_count: usize) -> Vec<String> {
-    let mut parts: Vec<String> = sep_regex.split(header).map(|s| s.to_string()).collect();
+fn apply_custom_header(
+    header: &str,
+    sep_regex: &Regex,
+    col_count: usize,
+    is_regex_whitespace: bool,
+) -> Vec<String> {
+    let mut parts: Vec<String> = split_with_quotes(header, sep_regex, is_regex_whitespace);
     if parts.len() < col_count {
         parts.resize(col_count, String::new());
     } else if parts.len() > col_count {
@@ -663,5 +629,51 @@ mod tests {
 
         assert!(result.headers.is_empty());
         assert!(result.rows.is_empty());
+    }
+
+    #[test]
+    fn test_process_quoted_values_not_split_on_blank() {
+        let lines = vec![
+            "Name Age".to_string(),
+            "\"John Smith\" 30".to_string(),
+            "'Jane Doe' 28".to_string(),
+        ];
+
+        let args = AppArgs::default();
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.headers, vec!["Name", "Age"]);
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(result.rows[0], vec!["\"John Smith\"", "30"]);
+        assert_eq!(result.rows[1], vec!["'Jane Doe'", "28"]);
+    }
+
+    #[test]
+    fn test_process_quoted_values_not_split_on_blank_with_mb() {
+        let lines = vec![
+            "Name    Age".to_string(),
+            "\"John   Smith\"    30".to_string(),
+        ];
+
+        let mut args = AppArgs::default();
+        args.mb = true;
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.headers, vec!["Name", "Age"]);
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0], vec!["\"John   Smith\"", "30"]);
+    }
+
+    #[test]
+    fn test_process_quoted_values_containing_separator() {
+        let lines = vec!["a,b,c".to_string(), "\"1,2\",3,4".to_string()];
+
+        let mut args = AppArgs::default();
+        args.sep = ",".to_string();
+        let result = process_input(lines, &args).unwrap();
+
+        assert_eq!(result.headers, vec!["a", "b", "c"]);
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0], vec!["\"1,2\"", "3", "4"]);
     }
 }

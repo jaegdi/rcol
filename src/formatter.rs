@@ -683,8 +683,8 @@ fn print_header(data: &TableData, ctx: &RenderContext) {
             line.push(ctx.chars.v);
         }
 
-        for (i, lines) in header_lines_vec.iter().enumerate() {
-            if i > 0 {
+        for (col_idx, lines) in header_lines_vec.iter().enumerate() {
+            if col_idx > 0 {
                 if ctx.draw_borders {
                     line.push(ctx.chars.v);
                 } else if ctx.draw_cs {
@@ -702,14 +702,14 @@ fn print_header(data: &TableData, ctx: &RenderContext) {
                 if line_idx == 0 && content.starts_with('-') && !content.is_empty() {
                     (true, &content[1..])
                 } else if line_idx == 0 {
-                    let header_text = &data.headers[i];
+                    let header_text = &data.headers[col_idx];
                     (header_text.starts_with('-'), content)
                 } else {
                     (false, content)
                 };
 
             let content_w = visible_width(final_content);
-            let w = ctx.widths[i];
+            let w = ctx.widths[col_idx];
 
             if ctx.args.nf {
                 line.push_str(final_content);
@@ -729,49 +729,24 @@ fn print_header(data: &TableData, ctx: &RenderContext) {
             }
         }
 
-        // Check for right alignment marker
-        let align_right = h.starts_with('-');
-        let content = if align_right { &h[1..] } else { h };
-        let content_w = visible_width(content);
-
-        let w = ctx.widths[i];
-        if ctx.args.nf {
-            line.push_str(content);
-        } else {
-            // Apply padding for alignment (no leading padding for first column when no borders)
-            if ctx.draw_borders || i > 0 {
-                line.push_str(&ctx.padding);
-            }
-            let pad_len = w.saturating_sub(content_w);
-            let pad = " ".repeat(pad_len);
-            if align_right {
-                line.push_str(&pad);
-                line.push_str(content);
-            } else {
-                line.push_str(content);
-                line.push_str(&pad);
-            }
-            // trailing padding
-            line.push_str(&ctx.padding);
-        }
-    }
-    if ctx.draw_borders {
-        line.push(ctx.chars.v);
-    }
-    println!("{}", line);
-
-    if ctx.draw_ts {
         if ctx.draw_borders {
             line.push(ctx.chars.v);
         }
         println!("{}", line);
-    }
 
-    if ctx.draw_borders || ctx.draw_ts {
-        if ctx.draw_borders {
-            print_header_separator(ctx);
-        } else {
-            print_separator(ctx, ctx.chars.h, ctx.chars.h, ctx.chars.h, ctx.chars.h);
+        if ctx.draw_ts {
+            if ctx.draw_borders {
+                line.push(ctx.chars.v);
+            }
+            println!("{}", line);
+        }
+
+        if ctx.draw_borders || ctx.draw_ts {
+            if ctx.draw_borders {
+                print_header_separator(ctx);
+            } else {
+                print_separator(ctx, ctx.chars.h, ctx.chars.h, ctx.chars.h, ctx.chars.h);
+            }
         }
     }
 }
@@ -813,8 +788,8 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
                 line.push(ctx.chars.v);
             }
 
-            for (i, cell_lines) in cell_lines_vec.iter().enumerate() {
-                if i > 0 {
+            for (col_idx, cell_lines) in cell_lines_vec.iter().enumerate() {
+                if col_idx > 0 {
                     if ctx.draw_borders {
                         line.push(ctx.chars.v);
                     } else if ctx.draw_cs {
@@ -827,8 +802,11 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
                 // Get the content for this line (or empty if beyond this cell's lines)
                 let content = cell_lines.get(line_idx).map(|s| s.as_str()).unwrap_or("");
 
-                let w = if i < ctx.widths.len() {
-                    ctx.widths[i]
+                // Get the value for the entire cell
+                let _val = &row[col_idx];
+
+                let w = if col_idx < ctx.widths.len() {
+                    ctx.widths[col_idx]
                 } else {
                     visible_width(content)
                 };
@@ -841,7 +819,7 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
                     // Check if value is numeric for default right-alignment
                     // Only check first line of cell for numeric property
                     let is_num = if line_idx == 0 {
-                        !ctx.args.nn && row[i].parse::<f64>().is_ok()
+                        !ctx.args.nn && row[col_idx].parse::<f64>().is_ok()
                     } else {
                         false
                     };
@@ -857,38 +835,29 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
                         line.push_str(content);
                         line.push_str(&pad);
                     }
+                    // trailing padding
                     line.push_str(&ctx.padding);
                 }
             }
 
-            let w = if i < ctx.widths.len() {
-                ctx.widths[i]
-            } else {
-                visible_width(val)
-            };
+            if ctx.draw_borders {
+                line.push(ctx.chars.v);
+            }
+            println!("{}", line);
 
-            if ctx.args.nf {
-                line.push_str(val);
-            } else {
-                // leading padding only when borders are drawn or it's not the first column
-                if ctx.draw_borders || i > 0 {
-                    line.push_str(&ctx.padding);
+            if ctx.draw_ts {
+                if ctx.draw_borders {
+                    line.push(ctx.chars.v);
                 }
-                // Check if value is numeric for default right-alignment
-                let is_num = !ctx.args.nn && val.parse::<f64>().is_ok();
-                let val_w = visible_width(val);
-                let pad_len = w.saturating_sub(val_w);
-                let pad = " ".repeat(pad_len);
+                println!("{}", line);
+            }
 
-                if is_num {
-                    line.push_str(&pad);
-                    line.push_str(val);
+            if ctx.draw_borders || ctx.draw_ts {
+                if ctx.draw_borders {
+                    print_separator(ctx, ctx.chars.lm, ctx.chars.rm, ctx.chars.c, ctx.chars.h);
                 } else {
-                    line.push_str(val);
-                    line.push_str(&pad);
+                    print_separator(ctx, ctx.chars.h, ctx.chars.h, ctx.chars.h, ctx.chars.h);
                 }
-                // trailing padding
-                line.push_str(&ctx.padding);
             }
         }
     }
