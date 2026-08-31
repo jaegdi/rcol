@@ -33,12 +33,11 @@ fn split_with_quotes(line: &str, sep_regex: &Regex, is_regex_whitespace: bool) -
     let mut current_field = String::new();
     let mut in_double_quotes = false;
     let mut in_single_quotes = false;
-    let mut last_match_end = 0;
-    
+
     // First pass: find separator positions while respecting quotes
     let mut separator_positions = Vec::new();
     let mut pos = 0;
-    
+
     for ch in line.chars() {
         match ch {
             '"' if !in_single_quotes => {
@@ -65,13 +64,13 @@ fn split_with_quotes(line: &str, sep_regex: &Regex, is_regex_whitespace: bool) -
         }
         pos += ch.len_utf8();
     }
-    
+
     // If using whitespace separator, do character-by-character parsing
     if is_regex_whitespace {
         let mut current_field = String::new();
         in_double_quotes = false;
         in_single_quotes = false;
-        
+
         for ch in line.chars() {
             match ch {
                 '"' if !in_single_quotes => {
@@ -94,27 +93,27 @@ fn split_with_quotes(line: &str, sep_regex: &Regex, is_regex_whitespace: bool) -
                 }
             }
         }
-        
+
         // Add the last field
         if !current_field.is_empty() {
             fields.push(current_field.trim().to_string());
         }
-        
+
         return if fields.is_empty() { vec![] } else { fields };
     }
-    
+
     // For non-whitespace separators, use regex split but still respect quotes
     // by doing a more sophisticated split
     current_field = String::new();
     in_double_quotes = false;
     in_single_quotes = false;
-    
+
     let mut i = 0;
     let bytes = line.as_bytes();
-    
+
     while i < bytes.len() {
         let ch = bytes[i] as char;
-        
+
         // Check for quote
         if ch == '"' && !in_single_quotes {
             in_double_quotes = !in_double_quotes;
@@ -144,16 +143,16 @@ fn split_with_quotes(line: &str, sep_regex: &Regex, is_regex_whitespace: bool) -
             i += 1;
         }
     }
-    
+
     // Add the last field
     if !current_field.is_empty() {
         fields.push(current_field.trim().to_string());
     }
-    
+
     if fields.is_empty() {
         return vec![];
     }
-    
+
     fields
 }
 
@@ -252,7 +251,7 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
     // -rh = Remove first line (maybe it was a bad header?).
 
     let line_iter = filtered_lines.into_iter();
-    
+
     // Determine if we should use character-by-character parsing for whitespace
     // This is true when -m flag is set OR when the default separator (space) is used
     let is_regex_whitespace = args.mb || args.sep == " ";
