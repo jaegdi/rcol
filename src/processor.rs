@@ -3,10 +3,6 @@ use regex::Regex;
 use std::cmp::Ordering;
 
 /// Represents processed tabular data with headers and rows.
-///
-/// Contains the table structure after processing, including selected and reordered columns.
-/// The `original_column_indices` field tracks which original columns were selected,
-/// which is useful for column numbering display.
 #[derive(Debug)]
 pub struct TableData {
     pub headers: Vec<String>,
@@ -158,303 +154,40 @@ fn split_with_quotes(line: &str, sep_regex: &Regex, is_regex_whitespace: bool) -
 
 /// Processes input lines according to application arguments to produce table data.
 ///
-/// Executes the complete data processing pipeline:
-/// 1. Filters lines based on regex pattern (if specified)
-/// 2. Splits lines into columns using the specified separator (respecting quoted strings)
-/// 3. Handles header extraction or application
-/// 4. Selects and reorders columns based on column specifications
-/// 5. Sorts rows by specified column (if requested)
-/// 6. Groups rows by specified column with optional value hiding (if requested)
-///
-/// # Arguments
-///
-/// * `lines` - Raw input lines to process
-/// * `args` - Application arguments specifying how to process the data
-///
-/// # Returns
-///
-/// - `Ok(TableData)` containing the processed table structure
-/// - `Err(String)` if processing fails (invalid regex, column specs, etc.)
-///
-/// # Processing Details
-///
-/// - **Filtering**: Lines not matching the filter regex are excluded
-/// - **Headers**: Determined by `-header`, `-nhl`, or first line default
-/// - **Column Selection**: Supports ranges (1:3) and individual columns (1 2 5)
-/// - **Sorting**: Numeric sort if values are numbers, otherwise lexicographic
-/// - **Grouping**: Inserts separator rows between groups, hides repeated values unless `-gcolval`
+/// Pipeline:
+/// 1. Extract/remove the header line first (so filtering never discards it).
+/// 2. Split remaining lines into columns and apply the filter regex.
+/// 3. Select and reorder columns.
+/// 4. Apply custom header if provided.
+/// 5. Sort rows by specified column.
+/// 6. Group rows by specified column.
 pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, String> {
-    let mut rows: Vec<Vec<String>> = Vec::new();
-    let mut headers: Vec<String> = Vec::new();
+    let sep_regex = build_separator_regex(args);
 
-    // 1. Filter lines
-    let filter_regex = if let Some(pattern) = &args.filter {
-        Some(Regex::new(pattern).map_err(|e| format!("Invalid filter regex: {}", e))?)
-    } else {
-        None
-    };
+    // 1. Header handling: extract or remove the first line before any filtering.
+    let (mut headers, data_lines) = extract_header(lines, args, &sep_regex)?;
 
-    let mut filtered_lines = Vec::new();
-    for line in lines {
-        if let Some(re) = &filter_regex {
-            if !re.is_match(&line) {
-                continue;
-            }
-        }
-        filtered_lines.push(line);
-    }
+    // 2. Split and filter data lines.
+    let mut rows = split_and_filter(data_lines, args, &sep_regex)?;
 
-    if filtered_lines.is_empty() {
-        return Ok(TableData {
-            headers,
-            rows,
-            original_column_indices: Vec::new(),
-        });
-    }
+    // 3. Column selection & reordering.
+    let col_indices = parse_column_specs(args, &headers, &rows)?;
+    headers = select_headers(headers, &col_indices);
+    rows = select_rows(rows, &col_indices);
 
-    // 2. Split lines into columns
-    // Determine separator regex
-    let sep_regex = if args.mb {
-        Regex::new(r"\s+").unwrap() // More blanks -> split by one or more whitespace
-    } else {
-        // Escape the separator if it's a special regex character
-        let sep_pattern = regex::escape(&args.sep);
-        Regex::new(&sep_pattern).unwrap()
-    };
-
-    // Handle Header
-    // If -header is provided, use it.
-    // If -nhl (no headline) is NOT set, and no -header provided, assume first line is header?
-    // Requirement: "-header='...' Headerline, if the text has no headers, you can define headers."
-    // "-nhl no headline The data contains no headline."
-    // This implies:
-    // If -header is set: Use it as header.
-    // If -nhl is set: No header in data, treat all lines as data.
-    // If neither: Is the first line a header?
-    // Usually CLI tools assume no header unless specified, OR assume first line is header.
-    // "rcol reads the complete input... -header='...' Headerline, if the text has no headers, you can define headers."
-    // This suggests the input might NOT have headers by default.
-    // But -nhl says "The data contains no headline". This implies the DEFAULT is that data MIGHT have a headline?
-    // Let's look at -rh "RemoveHeader removes the first line."
-    // If -rh is used, we drop the first line.
-
-    // Let's assume:
-    // If -header is set, we use it.
-    // If -rh is set, we skip the first line of input.
-    // If -nhl is set, we treat all (remaining) lines as data.
-    // If neither -header nor -nhl is set, do we treat first line as header?
-    // Most likely, rcol treats all input as data unless told otherwise, OR it treats first line as header if not told -nhl.
-    // Given -nhl exists, it strongly suggests the default is "Expect Headline".
-    // So: Default = First line is header.
-    // -nhl = No header in input (all lines are data).
-    // -header = Use this string as header.
-    // -rh = Remove first line (maybe it was a bad header?).
-
-    let line_iter = filtered_lines.into_iter();
-
-    // Determine if we should use character-by-character parsing for whitespace
-    // This is true when -m flag is set OR when the default separator (space) is used
-    let is_regex_whitespace = args.mb || args.sep == " ";
-
-    // Handle input lines
-    let mut first_line = true;
-    for line in line_iter {
-        if first_line {
-            first_line = false;
-            if args.rh {
-                continue; // Remove first line
-            }
-            if args.header.is_none() && !args.nhl {
-                // Treat first line as header - use quote-aware splitting
-                let parts: Vec<String> = split_with_quotes(&line, &sep_regex, is_regex_whitespace);
-                headers = parts;
-                continue;
-            }
-        }
-
-        let parts: Vec<String> = split_with_quotes(&line, &sep_regex, is_regex_whitespace);
-        rows.push(parts);
-    }
-
-    // 3. Column Selection & Reordering
-    // Parse column specs from args.columns
-    let mut col_indices: Vec<usize> = Vec::new();
-    if !args.columns.is_empty() {
-        for col_spec in &args.columns {
-            if col_spec.contains(':') {
-                // Range
-                let parts: Vec<&str> = col_spec.split(':').collect();
-                if parts.len() == 2 {
-                    let start: usize = parts[0]
-                        .parse()
-                        .map_err(|_| format!("Invalid range start: {}", parts[0]))?;
-                    let end: usize = parts[1]
-                        .parse()
-                        .map_err(|_| format!("Invalid range end: {}", parts[1]))?;
-                    // 1-based to 0-based
-                    if start == 0 || end == 0 {
-                        return Err("Column numbers must be 1-based".to_string());
-                    }
-                    if start <= end {
-                        for i in start..=end {
-                            col_indices.push(i - 1);
-                        }
-                    } else {
-                        // Reverse range? "To rearrange the columns the columns can given in the wanted order."
-                        // Usually ranges are low:high. But if user wants 3:1, maybe?
-                        // Let's support reverse ranges if start > end.
-                        let mut i = start;
-                        while i >= end {
-                            col_indices.push(i - 1);
-                            if i == 0 {
-                                break;
-                            } // Should not happen due to check above
-                            i -= 1;
-                        }
-                    }
-                } else {
-                    return Err(format!("Invalid range format: {}", col_spec));
-                }
-            } else {
-                // Single number
-                let idx: usize = col_spec
-                    .parse()
-                    .map_err(|_| format!("Invalid column number: {}", col_spec))?;
-                if idx == 0 {
-                    return Err("Column numbers must be 1-based".to_string());
-                }
-                col_indices.push(idx - 1);
-            }
-        }
-    } else {
-        // Default: all columns.
-        // We need to know max columns to select all.
-        // We can check the first row or header.
-        let max_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
-        let header_cols = headers.len();
-        let count = std::cmp::max(max_cols, header_cols);
-        for i in 0..count {
-            col_indices.push(i);
-        }
-    }
-
-    // Apply selection to headers and rows
-    let mut new_headers = Vec::new();
-    for &idx in &col_indices {
-        if idx < headers.len() {
-            new_headers.push(headers[idx].clone());
-        } else {
-            new_headers.push("".to_string());
-        }
-    }
-    headers = new_headers;
-
-    // Handle explicit header argument (applied to OUTPUT columns)
+    // 4. Apply explicit custom header (after selection so it matches output columns).
     if let Some(h) = &args.header {
-        let mut parts: Vec<String> = split_with_quotes(h, &sep_regex, is_regex_whitespace);
-        // Adjust length to match output columns
-        if parts.len() < col_indices.len() {
-            parts.resize(col_indices.len(), "".to_string());
-        } else if parts.len() > col_indices.len() {
-            parts.truncate(col_indices.len());
-        }
-        headers = parts;
+        headers = apply_custom_header(h, &sep_regex, col_indices.len());
     }
 
-    let mut new_rows = Vec::new();
-    for row in rows {
-        let mut new_row = Vec::new();
-        for &idx in &col_indices {
-            if idx < row.len() {
-                new_row.push(row[idx].clone());
-            } else {
-                new_row.push("".to_string());
-            }
-        }
-        new_rows.push(new_row);
-    }
-    rows = new_rows;
-
-    // 4. Sorting
+    // 5. Sorting.
     if let Some(sort_col) = args.sortcol {
-        // sort_col is 1-based output column number
-        if sort_col > 0 && sort_col <= col_indices.len() {
-            let idx = sort_col - 1;
-            // Check if numeric sort is needed?
-            // "Number refers to the number of the output column."
-            // Usually text sort unless specified otherwise.
-            // Requirement doesn't explicitly say numeric sort, but "-nn no numerical don't format numerical content right adjusted"
-            // implies numerical detection.
-            // For sorting, let's stick to string sort for now, or try numeric if it looks like number?
-            // Simple string sort is safer unless we want to be fancy.
-            rows.sort_by(|a, b| {
-                let val_a = &a[idx];
-                let val_b = &b[idx];
-                // Try numeric sort if both are numbers?
-                if let (Ok(num_a), Ok(num_b)) = (val_a.parse::<f64>(), val_b.parse::<f64>()) {
-                    num_a.partial_cmp(&num_b).unwrap_or(Ordering::Equal)
-                } else {
-                    val_a.cmp(val_b)
-                }
-            });
-        }
+        sort_rows(&mut rows, sort_col, col_indices.len());
     }
 
-    // 5. Grouping
+    // 6. Grouping.
     if let Some(gcol) = args.gcol {
-        if gcol > 0 && gcol <= col_indices.len() {
-            let idx = gcol - 1;
-            let mut last_val = String::new();
-            // We need to iterate and modify.
-            // But we also need to insert separators?
-            // "write a separator when the value in this column is different to the value in the previous line"
-            // Wait, "write a separator" - does it mean insert a row? Or just visual separator?
-            // "In the grouped column the second and all following lines of a group get the value '""'."
-            // This implies modifying the data.
-            // "write a separator" might mean a blank line or a line with dashes?
-            // Usually in these tools it means a blank line or a specific separator line.
-            // Let's assume it means inserting a separator row OR just modifying the values.
-            // "write a separator... In the grouped column..."
-            // It seems to imply TWO things:
-            // 1. Separator between groups.
-            // 2. Hiding repeated values.
-
-            // Let's implement hiding repeated values first.
-            // And for separator, maybe insert a special row? Or handle in formatter?
-            // If I insert a row here, it complicates the TableData structure (which expects uniform columns).
-            // Maybe I should add a `is_separator` flag to rows?
-            // Or just let the formatter handle it?
-            // But `process_input` returns `TableData`.
-            // Let's modify `TableData` to support separator rows?
-            // Or just insert an empty row?
-
-            // "write a separator... to group the values"
-            // Let's insert an empty row (all empty strings) between groups.
-
-            let mut grouped_rows = Vec::new();
-            let mut first = true;
-
-            for mut row in rows {
-                let val = row[idx].clone();
-                if !first && val != last_val {
-                    // Group change
-                    // Insert separator row?
-                    // Let's insert a row of empty strings.
-                    let empty_row = vec!["".to_string(); row.len()];
-                    grouped_rows.push(empty_row);
-                }
-
-                if !first && val == last_val && !args.gcolval {
-                    // Hide value
-                    row[idx] = "".to_string();
-                }
-
-                last_val = val;
-                grouped_rows.push(row);
-                first = false;
-            }
-            rows = grouped_rows;
-        }
+        rows = group_rows(rows, gcol, col_indices.len(), args.gcolval);
     }
 
     Ok(TableData {
@@ -462,6 +195,243 @@ pub fn process_input(lines: Vec<String>, args: &AppArgs) -> Result<TableData, St
         rows,
         original_column_indices: col_indices,
     })
+}
+
+/// Builds the regex used to split input lines into columns.
+fn build_separator_regex(args: &AppArgs) -> Regex {
+    if args.mb {
+        Regex::new(r"\s+").unwrap()
+    } else {
+        Regex::new(&regex::escape(&args.sep)).unwrap()
+    }
+}
+
+/// Extracts the header from the input lines and returns the remaining data lines.
+///
+/// Priority:
+/// - If `-header` is provided, use it as the header.
+/// - If `-rh` is set, discard the first line.
+/// - If `-nhl` is set, there is no header in input.
+/// - Otherwise, the first line is treated as the header.
+fn extract_header(
+    lines: Vec<String>,
+    args: &AppArgs,
+    sep_regex: &Regex,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    if lines.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+
+    let mut iter = lines.into_iter();
+    let first = iter.next().unwrap();
+
+    if args.rh {
+        // First line removed; any explicit custom header is applied later.
+        return Ok((Vec::new(), iter.collect()));
+    }
+
+    if args.nhl {
+        // No header in input; keep all lines as data.
+        let mut data_lines: Vec<String> = iter.collect();
+        data_lines.insert(0, first);
+        return Ok((Vec::new(), data_lines));
+    }
+
+    // Default: first line is the header.
+    Ok((split_header(&first, sep_regex), iter.collect()))
+}
+
+/// Splits a header string into individual column names.
+fn split_header(header: &str, sep_regex: &Regex) -> Vec<String> {
+    sep_regex.split(header).map(|s| s.to_string()).collect()
+}
+
+/// Splits data lines into columns and applies the optional filter regex.
+fn split_and_filter(
+    lines: Vec<String>,
+    args: &AppArgs,
+    sep_regex: &Regex,
+) -> Result<Vec<Vec<String>>, String> {
+    let filter_regex = args
+        .filter
+        .as_ref()
+        .map(|p| Regex::new(p).map_err(|e| format!("Invalid filter regex: {}", e)))
+        .transpose()?;
+
+    let mut rows = Vec::new();
+    for line in lines {
+        if let Some(re) = &filter_regex {
+            if !re.is_match(&line) {
+                continue;
+            }
+        }
+        rows.push(sep_regex.split(&line).map(|s| s.to_string()).collect());
+    }
+    Ok(rows)
+}
+
+/// Parses column specifications from CLI arguments.
+///
+/// Supports individual indices (`1 3 5`) and ranges (`1:3`, `3:1`).
+/// Returns 0-based indices.
+fn parse_column_specs(
+    args: &AppArgs,
+    headers: &[String],
+    rows: &[Vec<String>],
+) -> Result<Vec<usize>, String> {
+    if args.columns.is_empty() {
+        let max_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+        let count = std::cmp::max(max_cols, headers.len());
+        return Ok((0..count).collect());
+    }
+
+    let mut col_indices = Vec::new();
+    for col_spec in &args.columns {
+        if col_spec.contains(':') {
+            parse_range(col_spec, &mut col_indices)?;
+        } else {
+            parse_single(col_spec, &mut col_indices)?;
+        }
+    }
+    Ok(col_indices)
+}
+
+/// Parses a single column index and appends its 0-based value.
+fn parse_single(spec: &str, indices: &mut Vec<usize>) -> Result<(), String> {
+    let idx: usize = spec
+        .parse()
+        .map_err(|_| format!("Invalid column number: {}", spec))?;
+    if idx == 0 {
+        return Err("Column numbers must be 1-based".to_string());
+    }
+    indices.push(idx - 1);
+    Ok(())
+}
+
+/// Parses a column range and appends the corresponding 0-based indices.
+fn parse_range(spec: &str, indices: &mut Vec<usize>) -> Result<(), String> {
+    let parts: Vec<&str> = spec.split(':').collect();
+    if parts.len() != 2 {
+        return Err(format!("Invalid range format: {}", spec));
+    }
+    let start: usize = parts[0]
+        .parse()
+        .map_err(|_| format!("Invalid range start: {}", parts[0]))?;
+    let end: usize = parts[1]
+        .parse()
+        .map_err(|_| format!("Invalid range end: {}", parts[1]))?;
+    if start == 0 || end == 0 {
+        return Err("Column numbers must be 1-based".to_string());
+    }
+
+    if start <= end {
+        for i in start..=end {
+            indices.push(i - 1);
+        }
+    } else {
+        let mut i = start;
+        loop {
+            indices.push(i - 1);
+            if i == end {
+                break;
+            }
+            i -= 1;
+        }
+    }
+    Ok(())
+}
+
+/// Selects only the requested columns from the headers.
+fn select_headers(headers: Vec<String>, col_indices: &[usize]) -> Vec<String> {
+    col_indices
+        .iter()
+        .map(|&idx| {
+            if idx < headers.len() {
+                headers[idx].clone()
+            } else {
+                String::new()
+            }
+        })
+        .collect()
+}
+
+/// Selects only the requested columns from each row.
+fn select_rows(rows: Vec<Vec<String>>, col_indices: &[usize]) -> Vec<Vec<String>> {
+    rows.into_iter()
+        .map(|row| {
+            col_indices
+                .iter()
+                .map(|&idx| {
+                    if idx < row.len() {
+                        row[idx].clone()
+                    } else {
+                        String::new()
+                    }
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Applies a user-provided custom header, padded/truncated to match output columns.
+fn apply_custom_header(header: &str, sep_regex: &Regex, col_count: usize) -> Vec<String> {
+    let mut parts: Vec<String> = sep_regex.split(header).map(|s| s.to_string()).collect();
+    if parts.len() < col_count {
+        parts.resize(col_count, String::new());
+    } else if parts.len() > col_count {
+        parts.truncate(col_count);
+    }
+    parts
+}
+
+/// Sorts rows by the specified 1-based output column index.
+fn sort_rows(rows: &mut [Vec<String>], sort_col: usize, col_count: usize) {
+    if sort_col == 0 || sort_col > col_count {
+        return;
+    }
+    let idx = sort_col - 1;
+    rows.sort_by(|a, b| {
+        let val_a = &a[idx];
+        let val_b = &b[idx];
+        if let (Ok(num_a), Ok(num_b)) = (val_a.parse::<f64>(), val_b.parse::<f64>()) {
+            num_a.partial_cmp(&num_b).unwrap_or(Ordering::Equal)
+        } else {
+            val_a.cmp(val_b)
+        }
+    });
+}
+
+/// Groups rows by the specified 1-based output column index.
+///
+/// Repeated group values are replaced with empty strings unless `keep_vals` is true.
+/// An empty separator row is inserted between groups.
+fn group_rows(
+    rows: Vec<Vec<String>>,
+    gcol: usize,
+    col_count: usize,
+    keep_vals: bool,
+) -> Vec<Vec<String>> {
+    if gcol == 0 || gcol > col_count {
+        return rows;
+    }
+    let idx = gcol - 1;
+    let mut grouped = Vec::new();
+    let mut last_val = String::new();
+    let mut first = true;
+
+    for mut row in rows {
+        let val = row[idx].clone();
+        if !first && val != last_val {
+            grouped.push(vec![String::new(); row.len()]);
+        }
+        if !first && val == last_val && !keep_vals {
+            row[idx] = String::new();
+        }
+        last_val = val;
+        grouped.push(row);
+        first = false;
+    }
+    grouped
 }
 
 #[cfg(test)]
@@ -502,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn test_process_with_filter() {
+    fn test_filter_preserves_header() {
         let lines = vec![
             "Name Age".to_string(),
             "Alice 30".to_string(),
@@ -515,12 +485,10 @@ mod tests {
 
         let result = process_input(lines, &args).unwrap();
 
-        // Filter is applied AFTER header extraction, so should get 1 data row
-        // But header doesn't match filter, so it gets treated as data and filtered out
-        // Actually, looking at the code: filter is applied first, then header is extracted
-        // So "Name Age" will be filtered out, and Bob becomes the header
-        assert_eq!(result.headers, vec!["Bob", "25"]);
-        assert_eq!(result.rows.len(), 0);
+        // Header should be preserved even though it doesn't match the filter.
+        assert_eq!(result.headers, vec!["Name", "Age"]);
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0], vec!["Bob", "25"]);
     }
 
     #[test]
@@ -633,7 +601,6 @@ mod tests {
 
         let result = process_input(lines, &args).unwrap();
 
-        // Second row should have empty dept (grouping hides repeated values)
         assert_eq!(result.rows[0][0], "Sales");
         assert_eq!(result.rows[1][0], ""); // Hidden
         assert_eq!(result.rows[3][0], "Engineering");
@@ -662,13 +629,11 @@ mod tests {
 
         let mut args = AppArgs::default();
         args.rh = true;
-        // Also need to tell it there's no header in remaining lines
         args.nhl = true;
         args.header = Some("Name Age".to_string());
 
         let result = process_input(lines, &args).unwrap();
 
-        // -rh removes first line, -nhl treats rest as data, custom header applied
         assert_eq!(result.headers, vec!["Name", "Age"]);
         assert_eq!(result.rows.len(), 2);
         assert_eq!(result.rows[0], vec!["Name", "Age"]);
@@ -681,11 +646,10 @@ mod tests {
 
         let mut args = AppArgs::default();
         args.nhl = true;
-        args.header = Some("Name Age".to_string()); // Need to provide header when using -nhl
+        args.header = Some("Name Age".to_string());
 
         let result = process_input(lines, &args).unwrap();
 
-        // With -nhl and custom header, header is set and all lines are data
         assert_eq!(result.headers, vec!["Name", "Age"]);
         assert_eq!(result.rows.len(), 2);
     }

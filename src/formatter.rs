@@ -573,26 +573,26 @@ fn print_header_separator(ctx: &RenderContext) {
     let mut line = String::new();
 
     if ctx.draw_borders {
-       line.push('╠');  // Left junction with double lines
+        line.push('╠'); // Left junction with double lines
     }
     for (i, w) in ctx.widths.iter().enumerate() {
-       if i > 0 {
-           if ctx.draw_borders || ctx.draw_cs {
-               line.push('╬');  // Cross junction with double lines
-           } else {
-               // Fill space between columns with double line if no vertical separator
-               for _ in 0..ctx.args.w {
-                   line.push('═');
-               }
-           }
-       }
-       let total_w = w + 2 * ctx.args.w;
-       for _ in 0..total_w {
-           line.push('═');  // Double horizontal line
-       }
+        if i > 0 {
+            if ctx.draw_borders || ctx.draw_cs {
+                line.push('╬'); // Cross junction with double lines
+            } else {
+                // Fill space between columns with double line if no vertical separator
+                for _ in 0..ctx.args.w {
+                    line.push('═');
+                }
+            }
+        }
+        let total_w = w + 2 * ctx.args.w;
+        for _ in 0..total_w {
+            line.push('═'); // Double horizontal line
+        }
     }
     if ctx.draw_borders {
-       line.push('╣');  // Right junction with double lines
+        line.push('╣'); // Right junction with double lines
     }
     println!("{}", line);
 }
@@ -632,11 +632,14 @@ fn print_column_numbers(data: &TableData, ctx: &RenderContext) {
         };
         // Calculate width for alignment
         let num_w = visible_width(&num_str);
-        line.push_str(&ctx.padding);
+        if ctx.draw_borders || i > 0 {
+            line.push_str(&ctx.padding);
+        }
         line.push_str(&num_str);
         if *w > num_w {
             line.push_str(&" ".repeat(*w - num_w));
         }
+        // trailing padding (keep for spacing)
         line.push_str(&ctx.padding);
     }
     if ctx.draw_borders {
@@ -666,13 +669,13 @@ fn print_header(data: &TableData, ctx: &RenderContext) {
     // First, collect all header lines and determine header height
     let mut header_lines_vec = Vec::new();
     let mut max_header_height = 0;
-    
+
     for h in &data.headers {
         let lines = split_cell_lines(h);
         max_header_height = max_header_height.max(lines.len());
         header_lines_vec.push(lines);
     }
-    
+
     // Print each line of the header with proper alignment
     for line_idx in 0..max_header_height {
         let mut line = String::new();
@@ -693,20 +696,21 @@ fn print_header(data: &TableData, ctx: &RenderContext) {
 
             // Get the content for this line (or empty if beyond this cell's lines)
             let content = lines.get(line_idx).map(|s| s.as_str()).unwrap_or("");
-            
+
             // Check for right alignment marker (only on first line of cell)
-            let (align_right, final_content) = if line_idx == 0 && content.starts_with('-') && !content.is_empty() {
-                (true, &content[1..])
-            } else if line_idx == 0 {
-                let header_text = &data.headers[i];
-                (header_text.starts_with('-'), content)
-            } else {
-                (false, content)
-            };
-            
+            let (align_right, final_content) =
+                if line_idx == 0 && content.starts_with('-') && !content.is_empty() {
+                    (true, &content[1..])
+                } else if line_idx == 0 {
+                    let header_text = &data.headers[i];
+                    (header_text.starts_with('-'), content)
+                } else {
+                    (false, content)
+                };
+
             let content_w = visible_width(final_content);
             let w = ctx.widths[i];
-            
+
             if ctx.args.nf {
                 line.push_str(final_content);
             } else {
@@ -724,6 +728,39 @@ fn print_header(data: &TableData, ctx: &RenderContext) {
                 line.push_str(&ctx.padding);
             }
         }
+
+        // Check for right alignment marker
+        let align_right = h.starts_with('-');
+        let content = if align_right { &h[1..] } else { h };
+        let content_w = visible_width(content);
+
+        let w = ctx.widths[i];
+        if ctx.args.nf {
+            line.push_str(content);
+        } else {
+            // Apply padding for alignment (no leading padding for first column when no borders)
+            if ctx.draw_borders || i > 0 {
+                line.push_str(&ctx.padding);
+            }
+            let pad_len = w.saturating_sub(content_w);
+            let pad = " ".repeat(pad_len);
+            if align_right {
+                line.push_str(&pad);
+                line.push_str(content);
+            } else {
+                line.push_str(content);
+                line.push_str(&pad);
+            }
+            // trailing padding
+            line.push_str(&ctx.padding);
+        }
+    }
+    if ctx.draw_borders {
+        line.push(ctx.chars.v);
+    }
+    println!("{}", line);
+
+    if ctx.draw_ts {
         if ctx.draw_borders {
             line.push(ctx.chars.v);
         }
@@ -762,7 +799,7 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
         // First, split all cells into lines and determine max height
         let mut cell_lines_vec = Vec::new();
         let mut max_row_height = 0;
-        
+
         for val in row.iter() {
             let lines = split_cell_lines(val);
             max_row_height = max_row_height.max(lines.len());
@@ -800,7 +837,7 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
                     line.push_str(content);
                 } else {
                     line.push_str(&ctx.padding);
-                    
+
                     // Check if value is numeric for default right-alignment
                     // Only check first line of cell for numeric property
                     let is_num = if line_idx == 0 {
@@ -808,7 +845,7 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
                     } else {
                         false
                     };
-                    
+
                     let val_w = visible_width(content);
                     let pad_len = w.saturating_sub(val_w);
                     let pad = " ".repeat(pad_len);
@@ -823,17 +860,35 @@ fn print_data_rows(data: &TableData, ctx: &RenderContext) {
                     line.push_str(&ctx.padding);
                 }
             }
-            if ctx.draw_borders {
-                line.push(ctx.chars.v);
-            }
-            println!("{}", line);
-        }
-        
-        // Print horizontal separator between rows when borders are enabled
-        if ctx.draw_borders {
-            // Print separator after each data row (except the last)
-            if row_idx < data.rows.len() - 1 {
-                print_separator(ctx, ctx.chars.lm, ctx.chars.rm, ctx.chars.c, ctx.chars.h);
+
+            let w = if i < ctx.widths.len() {
+                ctx.widths[i]
+            } else {
+                visible_width(val)
+            };
+
+            if ctx.args.nf {
+                line.push_str(val);
+            } else {
+                // leading padding only when borders are drawn or it's not the first column
+                if ctx.draw_borders || i > 0 {
+                    line.push_str(&ctx.padding);
+                }
+                // Check if value is numeric for default right-alignment
+                let is_num = !ctx.args.nn && val.parse::<f64>().is_ok();
+                let val_w = visible_width(val);
+                let pad_len = w.saturating_sub(val_w);
+                let pad = " ".repeat(pad_len);
+
+                if is_num {
+                    line.push_str(&pad);
+                    line.push_str(val);
+                } else {
+                    line.push_str(val);
+                    line.push_str(&pad);
+                }
+                // trailing padding
+                line.push_str(&ctx.padding);
             }
         }
     }
